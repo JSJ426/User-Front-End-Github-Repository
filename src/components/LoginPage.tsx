@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Eye, EyeOff, Lock, User } from 'lucide-react';
 import AuthHeader from './AuthHeader';
+import { login as apiLogin } from '../api/auth';
 import { Footer } from './Footer';
 
 type PageType =
@@ -18,20 +19,29 @@ export default function LoginPage({ onNavigate }: LoginPageProps) {
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const canLogin = useMemo(() => userId.trim().length > 0 && password.trim().length > 0, [userId, password]);
 
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e: FormEvent) => {
+  e.preventDefault();
 
-    if (!canLogin) {
-      alert('아이디와 비밀번호를 입력해주세요.');
-      return;
-    }
+  if (!canLogin) {
+    alert('아이디와 비밀번호를 입력해주세요.');
+    return;
+  }
 
-    // TODO: 실제 인증 API 연결 시 여기서 호출
+  try {
+    setIsLoading(true);
+    await apiLogin({ id: userId.trim(), pw: password });
     onNavigate('app');
-  };
+  } catch (err: any) {
+    const msg = err?.message || '로그인에 실패했습니다.';
+    alert(msg);
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   return (
     <div className="auth-shell min-h-screen bg-[#F6F7F8] flex flex-col">
@@ -73,7 +83,7 @@ export default function LoginPage({ onNavigate }: LoginPageProps) {
                         <User className="w-5 h-5 text-gray-400" />
                       </span>
                       <input
-                        value={userId}
+                        value={userId} disabled={isLoading}
                         onChange={(e) => setUserId(e.target.value)}
                         className="auth-input w-full h-12 pl-12 pr-4 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00B3A4]/40 focus:border-[#00B3A4]"
                         placeholder="아이디"
@@ -90,7 +100,7 @@ export default function LoginPage({ onNavigate }: LoginPageProps) {
                       </span>
                       <input
                         type={showPw ? 'text' : 'password'}
-                        value={password}
+                        value={password} disabled={isLoading}
                         onChange={(e) => setPassword(e.target.value)}
                         className="auth-input w-full h-12 pl-12 pr-12 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00B3A4]/40 focus:border-[#00B3A4]"
                         placeholder="비밀번호"
@@ -113,12 +123,12 @@ export default function LoginPage({ onNavigate }: LoginPageProps) {
 
                   <button
                     type="submit"
-                    disabled={!canLogin}
+                    disabled={isLoading || !canLogin}
                     className={`auth-btn auth-btn-primary w-full h-14 rounded-2xl font-bold text-white shadow-sm transition ${
                       canLogin ? 'bg-[#00B3A4] hover:bg-[#009E91]' : 'bg-gray-300 cursor-not-allowed'
                     }`}
                   >
-                    로그인
+                    {isLoading ? '로그인 중...' : '로그인'}
                   </button>
 
                   <div className="text-center text-sm text-gray-600">

@@ -4,6 +4,7 @@ import AuthHeader from './AuthHeader';
 import TermsModal from './TermsModal';
 import PrivacyModal from './PrivacyModal';
 import { Footer } from './Footer';
+import { signup as apiSignup } from '../api/auth';
 
 type PageType =
   | 'login'
@@ -69,6 +70,7 @@ export default function StudentSignUpPage({ onNavigate }: StudentSignUpPageProps
   const [selectedAllergies, setSelectedAllergies] = useState<number[]>([]);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [agreedToPrivacy, setAgreedToPrivacy] = useState(false);
   const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
@@ -127,21 +129,41 @@ export default function StudentSignUpPage({ onNavigate }: StudentSignUpPageProps
     setStep(1);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
 
-    if (!agreedToTerms || !agreedToPrivacy) {
-      alert('필수 약관에 동의해주세요.');
-      return;
-    }
+  if (!agreedToTerms || !agreedToPrivacy) {
+    alert('필수 약관에 동의해주세요.');
+    return;
+  }
 
-    console.log('학생 회원가입 시도:', {
-      ...formData,
-      allergies: selectedAllergies,
-    });
-    alert('회원가입이 완료되었습니다!');
+  // 최소 스펙(사용자 API 명세서): id, pw, name
+  const id = (formData.email || '').trim();
+  const pw = formData.password;
+  const name = (formData.name || '').trim();
+
+  if (!id || !pw || !name) {
+    alert('이메일(아이디), 비밀번호, 이름은 필수입니다.');
+    return;
+  }
+
+  if (pw !== formData.confirmPassword) {
+    alert('비밀번호가 일치하지 않습니다.');
+    return;
+  }
+
+  try {
+    setIsSubmitting(true);
+    await apiSignup({ id, pw, name });
+    alert('회원가입이 완료되었습니다! 이제 로그인해주세요.');
     onNavigate('login');
-  };
+  } catch (err: any) {
+    const msg = err?.message || '회원가입에 실패했습니다.';
+    alert(msg);
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   // 학교 검색 핸들러
   const handleSchoolSearch = (query: string) => {
@@ -462,145 +484,149 @@ export default function StudentSignUpPage({ onNavigate }: StudentSignUpPageProps
                   </div>
                 </div>
 
-                {/* Next Button */}
-                <button
-                  type="submit"
-                  disabled={!isStep1Valid()}
-                  className={`w-full py-3.5 rounded-xl font-semibold transition-all shadow-sm hover:shadow-md mt-6 ${
-                    isStep1Valid()
-                      ? 'bg-[#00B3A4] text-white hover:bg-[#009688]'
-                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  }`}
-                >
-                  다음
-                </button>
-
-                {/* Links */}
-                <div className="text-center text-sm text-gray-600 mt-4">
-                  이미 계정이 있으신가요?{' '}
-                  <button onClick={() => onNavigate('login')} className="text-[#00B3A4] hover:underline font-medium">
-                    로그인
-                  </button>
-                </div>
-              </form>
+                  {/* Next Button */}
+  <button
+    type="submit"
+    disabled={isSubmitting || !isStep1Valid()}
+    className={`w-full py-3.5 rounded-xl font-semibold transition-all shadow-sm hover:shadow-md ${
+      isStep1Valid()
+        ? 'bg-[#00B3A4] text-white hover:bg-[#009688]'
+        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+    }`}
+  >
+    다음
+  </button>
+</form>
             </>
           )}
 
-          {/* Step 2: 알레르기 선택 */}
-          {step === 2 && (
-            <>
-              <p className="text-gray-600 mb-8">
-                알레르기 정보를 선택하고 약관에 동의해주세요.
-              </p>
 
-              <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Allergy Selection Section */}
-                <div className="space-y-5">
-                  <h3 className="font-semibold text-gray-800 text-lg pb-2 border-b-2 border-[#00B3A4]">
-                    알레르기 정보 선택
-                  </h3>
-                  <p className="text-sm text-gray-600">
-                    해당하는 알레르기 항목을 모두 선택해주세요.
-                  </p>
+{/* Step 2: 알레르기 선택 + 약관 동의 */}
+{step === 2 && (
+  <>
+    <p className="text-gray-600 mb-8">
+      알레르기 정보를 선택하고 필수 약관에 동의해주세요.
+    </p>
 
-                  {/* Allergy Grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                    {allergyItems.map((allergy) => (
-                      <button
-                        key={allergy.id}
-                        type="button"
-                        onClick={() => toggleAllergy(allergy.id)}
-                        className={`relative px-4 py-3 rounded-xl border-2 font-medium transition-all ${
-                          selectedAllergies.includes(allergy.id)
-                            ? 'border-[#00B3A4] bg-[#00B3A4]/5 text-[#00B3A4]'
-                            : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
-                        }`}
-                      >
-                        <span>{allergy.name}</span>
-                        {selectedAllergies.includes(allergy.id) && (
-                          <Check className="h-5 w-5 text-[#00B3A4] absolute top-2 right-2" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+    <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Allergy Section (optional) */}
+      <div className="space-y-5">
+        <h3 className="font-semibold text-gray-800 text-lg pb-2 border-b-2 border-[#00B3A4]">
+          알레르기 선택 (선택)
+        </h3>
 
-                {/* Terms Agreement */}
-                <div className="space-y-3 pt-4">
-                  <h3 className="font-semibold text-gray-800 text-lg pb-2 border-b-2 border-[#00B3A4]">
-                    약관 동의
-                  </h3>
-
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={agreedToTerms}
-                      onChange={(e) => setAgreedToTerms(e.target.checked)}
-                      className="mt-1 h-4 w-4 rounded border-gray-300 text-[#00B3A4] focus:ring-[#00B3A4]"
-                    />
-                    <span className="text-sm text-gray-700">
-                      <span className="text-red-500">*</span> 이용약관에 동의합니다.{' '}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          setIsTermsModalOpen(true);
-                        }}
-                        className="text-[#00B3A4] hover:underline"
-                      >
-                        자세히 보기
-                      </button>
-                    </span>
-                  </label>
-
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={agreedToPrivacy}
-                      onChange={(e) => setAgreedToPrivacy(e.target.checked)}
-                      className="mt-1 h-4 w-4 rounded border-gray-300 text-[#00B3A4] focus:ring-[#00B3A4]"
-                    />
-                    <span className="text-sm text-gray-700">
-                      <span className="text-red-500">*</span> 개인정보 처리방침에 동의합니다.{' '}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          setIsPrivacyModalOpen(true);
-                        }}
-                        className="text-[#00B3A4] hover:underline"
-                      >
-                        자세히 보기
-                      </button>
-                    </span>
-                  </label>
-                </div>
-
-                {/* Buttons */}
-                <div className="flex gap-3 mt-6">
-                  <button
-                    type="button"
-                    onClick={handlePreviousStep}
-                    className="flex-1 bg-gray-100 text-gray-700 py-3.5 rounded-xl font-semibold hover:bg-gray-200 transition-colors shadow-sm"
-                  >
-                    이전
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={!agreedToTerms || !agreedToPrivacy}
-                    className={`flex-1 py-3.5 rounded-xl font-semibold transition-all shadow-sm hover:shadow-md ${
-                      agreedToTerms && agreedToPrivacy
-                        ? 'bg-[#00B3A4] text-white hover:bg-[#009688]'
-                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    }`}
-                  >
-                    가입 완료
-                  </button>
-                </div>
-              </form>
-            </>
-          )}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {allergyItems.map((item) => {
+            const selected = selectedAllergies.includes(item.id);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => toggleAllergy(item.id)}
+                className={`flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${
+                  selected
+                    ? 'border-[#00B3A4] bg-[#00B3A4]/5 text-gray-800'
+                    : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <span className="font-medium">{item.name}</span>
+                {selected && <Check className="w-5 h-5 text-[#00B3A4]" />}
+              </button>
+            );
+          })}
         </div>
+
+        <p className="text-sm text-gray-500">
+          선택한 알레르기: {selectedAllergies.length ? selectedAllergies.join(', ') : '없음'}
+        </p>
+      </div>
+
+      {/* Agreements */}
+      <div className="space-y-5">
+        <h3 className="font-semibold text-gray-800 text-lg pb-2 border-b-2 border-[#00B3A4]">
+          약관 동의
+        </h3>
+
+        <div className="space-y-3">
+          <label className="flex items-start gap-3 p-4 border border-gray-200 rounded-xl">
+            <input
+              type="checkbox"
+              className="mt-1 h-5 w-5 accent-[#00B3A4]"
+              checked={agreedToTerms}
+              onChange={(e) => setAgreedToTerms(e.target.checked)}
+            />
+            <div className="flex-1">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-medium text-gray-800">
+                  이용약관 동의 <span className="text-red-500">(필수)</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsTermsModalOpen(true)}
+                  className="text-sm text-[#00B3A4] hover:underline"
+                >
+                  보기
+                </button>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">
+                서비스 이용을 위해 이용약관에 동의해주세요.
+              </p>
+            </div>
+          </label>
+
+          <label className="flex items-start gap-3 p-4 border border-gray-200 rounded-xl">
+            <input
+              type="checkbox"
+              className="mt-1 h-5 w-5 accent-[#00B3A4]"
+              checked={agreedToPrivacy}
+              onChange={(e) => setAgreedToPrivacy(e.target.checked)}
+            />
+            <div className="flex-1">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-medium text-gray-800">
+                  개인정보 처리방침 동의 <span className="text-red-500">(필수)</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsPrivacyModalOpen(true)}
+                  className="text-sm text-[#00B3A4] hover:underline"
+                >
+                  보기
+                </button>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">
+                개인정보 수집·이용에 동의해주세요.
+              </p>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-3 pt-2">
+        <button
+          type="button"
+          onClick={handlePreviousStep}
+          className="flex-1 bg-gray-100 text-gray-700 py-3.5 rounded-xl font-semibold hover:bg-gray-200 transition-colors shadow-sm"
+        >
+          이전
+        </button>
+
+        <button
+          type="submit"
+          disabled={isSubmitting || !agreedToTerms || !agreedToPrivacy}
+          className={`flex-1 py-3.5 rounded-xl font-semibold transition-all shadow-sm hover:shadow-md ${
+            agreedToTerms && agreedToPrivacy
+              ? 'bg-[#00B3A4] text-white hover:bg-[#009688]'
+              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+          }`}
+        >
+          {isSubmitting ? '가입 중...' : '가입 완료'}
+        </button>
+      </div>
+    </form>
+  </>
+)}        </div>
       </main>
 
       {/* Terms Modal */}
