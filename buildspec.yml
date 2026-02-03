@@ -1,0 +1,22 @@
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+      nodejs: 18
+    commands:
+      - npm install
+  build:
+    commands:
+      - npm run build
+  post_build:
+    commands:
+      - aws s3 sync build/ s3://kt-team18-student-prod-web --delete --content-type "text/html" --exclude "*" --include
+ "*.html"
+      - aws s3 sync build/ s3://kt-team18-student-prod-web --content-type "application/javascript" --exclude "*"
+--include "*.js"
+      - aws s3 sync build/ s3://kt-team18-student-prod-web --content-type "text/css" --exclude "*" --include "*.css"
+      - aws s3 sync build/ s3://kt-team18-student-prod-web --delete
+artifacts:
+  files:
+    - '**/*'
+  base-directory: build
