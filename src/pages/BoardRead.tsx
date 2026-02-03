@@ -7,9 +7,10 @@ interface BoardReadProps {
   onPageChange: (page: PageType, postId?: string) => void;
   post: BoardPost | null;
   onDelete: (postId: string) => void;
+  currentUser?: string; // 현재 로그인한 사용자 이름
 }
 
-export function BoardRead({ darkMode = false, onPageChange, post, onDelete }: BoardReadProps) {
+export function BoardRead({ darkMode = false, onPageChange, post, onDelete, currentUser }: BoardReadProps) {
   if (!post) {
     return (
       <div className="space-y-6">
@@ -34,10 +35,8 @@ export function BoardRead({ darkMode = false, onPageChange, post, onDelete }: Bo
         return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
       case '건의':
         return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
-      case '요청':
+      case '신메뉴':
         return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
-      case '불편사항':
-        return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400';
       case '기타의견':
         return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400';
       default:
@@ -63,6 +62,7 @@ export function BoardRead({ darkMode = false, onPageChange, post, onDelete }: Bo
   };
 
   const isNotice = post.category === '공지';
+  const isMyPost = currentUser && post.author === currentUser;
 
   return (
     <div className="space-y-6">
@@ -78,7 +78,8 @@ export function BoardRead({ darkMode = false, onPageChange, post, onDelete }: Bo
           <span>목록으로</span>
         </button>
 
-        {!isNotice && (
+        {/* 공지가 아니고, 본인이 작성한 글인 경우에만 수정/삭제 버튼 표시 */}
+        {!isNotice && isMyPost && (
           <div className="flex gap-2">
             <button
               onClick={() => onPageChange('boardEdit', post.id)}

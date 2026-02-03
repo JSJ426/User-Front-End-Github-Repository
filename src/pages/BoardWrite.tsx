@@ -13,17 +13,15 @@ export function BoardWrite({ darkMode = false, onPageChange, onSubmit }: BoardWr
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
 
-  // '공지'를 제외한 카테고리 목록
-  const categories = ['건의', '요청', '불편사항', '기타의견'];
+  // '공지'를 제외한 카테고리 목록 (학생용)
+  const categories = ['건의', '신메뉴', '기타의견'];
 
   const getCategoryColor = (cat: string) => {
     switch (cat) {
       case '건의':
         return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
-      case '요청':
+      case '신메뉴':
         return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
-      case '불편사항':
-        return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400';
       case '기타의견':
         return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400';
       default:

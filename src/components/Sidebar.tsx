@@ -1,5 +1,6 @@
 import { X, Home, Calendar, Star, User, Settings, MessageSquare } from 'lucide-react';
 import { PageType } from '../App';
+import { useEffect } from 'react';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -11,7 +12,7 @@ interface SidebarProps {
 
 export function Sidebar({ isOpen, onClose, currentPage, onPageChange, darkMode = false }: SidebarProps) {
   const menuItems = [
-    { id: 'home' as PageType, icon: Home, label: '오늘의 급식', color: 'text-teal-500' },
+    { id: 'home' as PageType, icon: Home, label: '홈', color: 'text-teal-500' },
     { id: 'schedule' as PageType, icon: Calendar, label: '식단표 조회', color: 'text-blue-500' },
     { id: 'satisfaction' as PageType, icon: Star, label: '만족도 평가', color: 'text-yellow-500' },
     { id: 'board' as PageType, icon: MessageSquare, label: '게시판', color: 'text-green-500' },
@@ -19,11 +20,36 @@ export function Sidebar({ isOpen, onClose, currentPage, onPageChange, darkMode =
     { id: 'settings' as PageType, icon: Settings, label: '설정', color: 'text-gray-500' },
   ];
 
+  // 사이드바가 열릴 때 메인 화면 스크롤 비활성화
+  useEffect(() => {
+    if (isOpen) {
+      // 스크롤 비활성화
+      document.body.style.overflow = 'hidden';
+    } else {
+      // 스크롤 복원
+      document.body.style.overflow = '';
+    }
+
+    // 컴포넌트 언마운트 시 스크롤 복원
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
+
   return (
     <>
+      {/* 오버레이 (사이드바 외부 영역) */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-[rgba(0,0,0,0.4)] bg-opacity-40 z-40 transition-opacity duration-300"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+
       {/* 사이드바 */}
       <div 
-        className={`fixed top-0 right-0 h-full w-80 ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-2xl z-50 transform transition-transform duration-300 ease-in-out ${
+        className={`fixed top-0 right-0 h-full w-80 max-w-[85vw] ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-2xl z-50 transform transition-transform duration-300 ease-in-out ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >

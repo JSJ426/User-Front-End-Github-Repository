@@ -4,7 +4,7 @@ import { PageType } from '../App';
 
 export interface BoardPost {
   id: string;
-  category: '공지' | '건의' | '요청' | '불편사항' | '기타의견';
+  category: '공지' | '건의' | '신메뉴' | '기타의견';
   title: string;
   content: string;
   author: string;
@@ -22,7 +22,7 @@ export function Board({ darkMode = false, onPageChange, posts }: BoardProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('전체');
 
-  const categories = ['전체', '공지', '건의', '요청', '불편사항', '기타의견'];
+  const categories = ['전체', '공지', '건의', '신메뉴', '기타의견'];
 
   const filteredPosts = posts.filter((post) => {
     const matchesSearch = post.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -31,16 +31,21 @@ export function Board({ darkMode = false, onPageChange, posts }: BoardProps) {
     return matchesSearch && matchesCategory;
   });
 
+  // 공지를 상단에 고정
+  const sortedPosts = [...filteredPosts].sort((a, b) => {
+    if (a.category === '공지' && b.category !== '공지') return -1;
+    if (a.category !== '공지' && b.category === '공지') return 1;
+    return b.createdAt.getTime() - a.createdAt.getTime();
+  });
+
   const getCategoryColor = (category: string) => {
     switch (category) {
       case '공지':
         return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
       case '건의':
         return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
-      case '요청':
+      case '신메뉴':
         return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
-      case '불편사항':
-        return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400';
       case '기타의견':
         return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400';
       default:
@@ -125,7 +130,7 @@ export function Board({ darkMode = false, onPageChange, posts }: BoardProps) {
 
       {/* 게시물 목록 */}
       <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-lg shadow-md overflow-hidden`}>
-        {filteredPosts.length === 0 ? (
+        {sortedPosts.length === 0 ? (
           <div className="text-center py-12">
             <FileText className={`w-16 h-16 mx-auto mb-4 ${darkMode ? 'text-gray-600' : 'text-gray-300'}`} />
             <p className={`text-lg ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
@@ -134,11 +139,19 @@ export function Board({ darkMode = false, onPageChange, posts }: BoardProps) {
           </div>
         ) : (
           <div className="divide-y divide-gray-200 dark:divide-gray-700">
-            {filteredPosts.map((post) => (
+            {sortedPosts.map((post) => (
               <button
                 key={post.id}
                 onClick={() => onPageChange('boardRead', post.id)}
-                className={`w-full text-left p-6 hover:bg-gray-50 dark:hover:bg-gray-700 transition`}
+                className={`w-full text-left p-6 transition ${
+                  post.category === '공지'
+                    ? darkMode 
+                      ? 'bg-red-900/10 hover:bg-red-900/20' 
+                      : 'bg-red-50 hover:bg-red-100'
+                    : darkMode
+                    ? 'hover:bg-gray-700'
+                    : 'hover:bg-gray-50'
+                }`}
               >
                 <div className="flex items-start gap-4">
                   <div className="flex-1 min-w-0">
