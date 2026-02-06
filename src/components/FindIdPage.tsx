@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Mail, Phone } from 'lucide-react';
+import { Mail, Phone, ArrowLeft } from 'lucide-react';
 import AuthHeader from './AuthHeader';
 import { Footer } from './Footer';
 
@@ -33,7 +33,19 @@ export default function FindIdPage({ onNavigate }: FindIdPageProps) {
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 flex-grow">
         <div className="bg-white rounded-2xl shadow-lg overflow-hidden p-8 lg:p-12">
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">아이디 찾기</h2>
+          {/* Header with back button */}
+          <div className="flex items-center gap-3 mb-2">
+            <button
+              type="button"
+              onClick={() => onNavigate('login')}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+              aria-label="로그인으로 돌아가기"
+              title="로그인으로 돌아가기"
+            >
+              <ArrowLeft className="w-6 h-6" />
+            </button>
+            <h2 className="text-2xl font-bold text-gray-800">아이디 찾기</h2>
+          </div>
           <p className="text-gray-600 mb-8">
             가입 시 입력한 정보로 아이디를 찾을 수 있습니다.
           </p>

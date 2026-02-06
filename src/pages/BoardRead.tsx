@@ -1,16 +1,86 @@
+import { useEffect, useState } from 'react';
 import { ArrowLeft, Edit, Trash2, Eye } from 'lucide-react';
 import { PageType } from '../App';
 import { BoardPost } from './Board';
+import { fetchBoardDetail } from '../api/board';
 
 interface BoardReadProps {
   darkMode?: boolean;
   onPageChange: (page: PageType, postId?: string) => void;
-  post: BoardPost | null;
+  postId: string | null;
   onDelete: (postId: string) => void;
   currentUser?: string; // 현재 로그인한 사용자 이름
 }
 
-export function BoardRead({ darkMode = false, onPageChange, post, onDelete, currentUser }: BoardReadProps) {
+function apiCategoryToUiCategory(cat: string): BoardPost['category'] {
+  const c = String(cat || '').toUpperCase();
+  if (c === 'NOTICE') return '공지';
+  if (c === 'NEW_MENU') return '신메뉴';
+  if (c === 'SUGGESTION') return '건의';
+  return '기타의견';
+}
+
+export function BoardRead({ darkMode = false, onPageChange, postId, onDelete, currentUser }: BoardReadProps) {
+  const [post, setPost] = useState<BoardPost | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    async function load() {
+      if (!postId) {
+        setPost(null);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await fetchBoardDetail(Number(postId));
+        const d = res?.data;
+        if (!d) throw new Error('게시물 데이터가 없습니다.');
+
+        const uiPost: BoardPost = {
+          id: String(d.id),
+          category: apiCategoryToUiCategory(d.category),
+          title: d.title,
+          content: d.content,
+          author: d.authorName || (d.authorType === 'DIETITIAN' ? '영양사' : '학생'),
+          createdAt: new Date(d.createdAt),
+          views: d.viewCount ?? 0,
+        };
+        if (mounted) setPost(uiPost);
+      } catch (e: any) {
+        if (mounted) setError(e?.message || '게시물을 불러오지 못했습니다.');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, [postId]);
+
+  if (loading) {
+    return <div className={`p-6 ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>게시물을 불러오는 중...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className={`p-6 ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+        <h3 className={`font-semibold mb-2 ${darkMode ? 'text-gray-100' : 'text-gray-800'}`}>게시물을 불러오지 못했습니다</h3>
+        <pre className={`text-sm whitespace-pre-wrap ${darkMode ? 'text-red-300' : 'text-red-600'}`}>{error}</pre>
+        <button
+          onClick={() => onPageChange('board')}
+          className={`mt-4 px-4 py-2 rounded-lg ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+        >
+          목록으로
+        </button>
+      </div>
+    );
+  }
+
   if (!post) {
     return (
       <div className="space-y-6">

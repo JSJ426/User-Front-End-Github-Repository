@@ -1,39 +1,29 @@
 // src/api/http.ts
-// Fetch wrapper for this project (no extra dependencies).
-// - baseURL is controlled by VITE_API_BASE_URL
-// - access token is stored in localStorage
-// - refresh token is expected to be HttpOnly cookie (credentials: include)
+const API_BASE_URL = 'http://localhost:8080';
 
-export const API_BASE_URL =
-  (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8080';
-
-export const API_KEY =
-  (import.meta as any).env?.VITE_API_KEY || 'api_key';
-
-const ACCESS_TOKEN_KEY = 'access_token';
-
-export function getAccessToken(): string | null {
-  return localStorage.getItem(ACCESS_TOKEN_KEY);
-}
-
-export function setAccessToken(token: string) {
-  localStorage.setItem(ACCESS_TOKEN_KEY, token);
-}
-
-export function clearAccessToken() {
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-}
+export const API_KEY = 'api_key';
 
 export class ApiError extends Error {
   status: number;
-  data?: any;
+  data: any;
 
   constructor(message: string, status: number, data?: any) {
     super(message);
-    this.name = 'ApiError';
     this.status = status;
     this.data = data;
   }
+}
+
+export function getAccessToken() {
+  return localStorage.getItem('access_token');
+}
+
+export function setAccessToken(token: string) {
+  localStorage.setItem('access_token', token);
+}
+
+export function clearAccessToken() {
+  localStorage.removeItem('access_token');
 }
 
 type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -44,8 +34,8 @@ export async function requestJson<T>(
   options?: {
     body?: any;
     headers?: Record<string, string>;
-    // Set to true if you want the raw Response too (e.g., to read headers)
     returnResponse?: boolean;
+    skipAuth?: boolean; // ✅ 핵심
   }
 ): Promise<T>;
 export async function requestJson(
@@ -55,14 +45,23 @@ export async function requestJson(
     body?: any;
     headers?: Record<string, string>;
     returnResponse?: boolean;
+    skipAuth?: boolean;
   }
 ): Promise<any> {
   const token = getAccessToken();
+
   const headers: Record<string, string> = {
+    // ✅ 백엔드에서 API-KEY를 요구하는 경우가 있어 기본으로 포함
+    'API-KEY': API_KEY,
+    'api-key': API_KEY,
     'Content-Type': 'application/json',
     ...(options?.headers ?? {}),
   };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  // ✅ 회원가입/로그인 요청이면 Authorization 절대 붙이지 않음
+  if (!options?.skipAuth && token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
 
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method,
@@ -71,7 +70,6 @@ export async function requestJson(
     body: options?.body !== undefined ? JSON.stringify(options.body) : undefined,
   });
 
-  // Try JSON first; fall back to text for non-JSON responses
   const contentType = res.headers.get('content-type') || '';
   const isJson = contentType.includes('application/json');
   const data = isJson ? await res.json().catch(() => null) : await res.text().catch(() => null);
@@ -79,10 +77,16 @@ export async function requestJson(
   if (!res.ok) {
     const message =
       (data && typeof data === 'object' && 'message' in data && String((data as any).message)) ||
-      `요청 실패 (HTTP ${res.status})`;
+      (typeof data === 'string' && data.trim()
+        ? data
+        : `요청 실패 (HTTP ${res.status})`);
+
     throw new ApiError(message, res.status, data);
   }
 
-  if (options?.returnResponse) return { data, response: res };
+  if (options?.returnResponse) {
+    return { data, response: res };
+  }
+
   return data;
 }

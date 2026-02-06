@@ -2,38 +2,82 @@ import { useState, useEffect } from 'react';
 import { ArrowLeft, Save } from 'lucide-react';
 import { PageType } from '../App';
 import { BoardPost } from './Board';
+import { fetchBoardDetail } from '../api/board';
 
 interface BoardEditProps {
   darkMode?: boolean;
   onPageChange: (page: PageType, postId?: string) => void;
-  post: BoardPost | null;
+  postId: string | null;
   onUpdate: (postId: string, data: { category: string; title: string; content: string }) => void;
 }
 
-export function BoardEdit({ darkMode = false, onPageChange, post, onUpdate }: BoardEditProps) {
+function apiCategoryToUiCategory(cat: string): BoardPost['category'] {
+  const c = String(cat || '').toUpperCase();
+  if (c === 'NOTICE') return '공지';
+  if (c === 'NEW_MENU') return '신메뉴';
+  if (c === 'SUGGESTION') return '건의';
+  return '기타의견';
+}
+
+export function BoardEdit({ darkMode = false, onPageChange, postId, onUpdate }: BoardEditProps) {
+  const [post, setPost] = useState<BoardPost | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [category, setCategory] = useState<string>('건의');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
 
   useEffect(() => {
-    if (post) {
-      setCategory(post.category === '공지' ? '건의' : post.category);
-      setTitle(post.title);
-      setContent(post.content);
-    }
-  }, [post]);
+    let mounted = true;
+    async function load() {
+      if (!postId) {
+        setPost(null);
+        return;
+      }
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await fetchBoardDetail(Number(postId));
+        const d = res?.data;
+        if (!d) throw new Error('게시물 데이터가 없습니다.');
 
-  // '공지'를 제외한 카테고리 목록
-  const categories = ['건의', '요청', '불편사항', '기타의견'];
+        const uiPost: BoardPost = {
+          id: String(d.id),
+          category: apiCategoryToUiCategory(d.category),
+          title: d.title,
+          content: d.content,
+          author: d.authorName || (d.authorType === 'DIETITIAN' ? '영양사' : '학생'),
+          createdAt: new Date(d.createdAt),
+          views: d.viewCount ?? 0,
+        };
+
+        if (!mounted) return;
+        setPost(uiPost);
+        // form preset
+        setCategory(uiPost.category === '공지' ? '건의' : uiPost.category);
+        setTitle(uiPost.title);
+        setContent(uiPost.content);
+      } catch (e: any) {
+        if (mounted) setError(e?.message || '게시물을 불러오지 못했습니다.');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, [postId]);
+
+  // '공지'를 제외한 카테고리 목록 (사용자 페이지 기준)
+  const categories = ['건의', '신메뉴', '기타의견'];
 
   const getCategoryColor = (cat: string) => {
     switch (cat) {
       case '건의':
         return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
-      case '요청':
+      case '신메뉴':
         return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
-      case '불편사항':
-        return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400';
       case '기타의견':
         return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400';
       default:
@@ -62,6 +106,25 @@ export function BoardEdit({ darkMode = false, onPageChange, post, onUpdate }: Bo
     alert('게시물이 수정되었습니다!');
     onPageChange('boardRead', post.id);
   };
+
+  if (loading) {
+    return <div className={`p-6 ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>게시물을 불러오는 중...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className={`p-6 ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+        <h3 className={`font-semibold mb-2 ${darkMode ? 'text-gray-100' : 'text-gray-800'}`}>게시물을 불러오지 못했습니다</h3>
+        <pre className={`text-sm whitespace-pre-wrap ${darkMode ? 'text-red-300' : 'text-red-600'}`}>{error}</pre>
+        <button
+          onClick={() => onPageChange('board')}
+          className={`mt-4 px-4 py-2 rounded-lg ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+        >
+          목록으로
+        </button>
+      </div>
+    );
+  }
 
   if (!post) {
     return (

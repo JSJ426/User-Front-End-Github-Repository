@@ -1,13 +1,238 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Star, Send, CheckCircle, Clock, AlertCircle, Bug } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogAction } from '../components/ui/alert-dialog';
 import { toast } from 'sonner@2.0.3';
 import { Switch } from '../components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { getDailyMeal } from '../api/mealplan';
+import { createSatisfaction } from '../api/satisfaction';
+
+type MealTab = 'lunch' | 'dinner';
+
+function extractMenuNames(menuItems: any): string[] {
+  if (!menuItems || typeof menuItems !== 'object') return [];
+  const keys = ['rice', 'soup', 'main1', 'main2', 'side', 'kimchi', 'dessert'] as const;
+  const names: string[] = [];
+  for (const k of keys) {
+    const item = (menuItems as any)[k];
+    if (item && typeof item === 'object' && item.name) names.push(String(item.name));
+  }
+  return names;
+}
+
+function StarRating({
+  rating,
+  setRating,
+  label,
+  hover,
+  setHover,
+  disabled,
+}: {
+  rating: number;
+  setRating: (n: number) => void;
+  label: string;
+  hover: number;
+  setHover: (n: number) => void;
+  disabled?: boolean;
+}) {
+  const displayRating = hover || rating;
+
+  const handleClick = (index: number, isHalf: boolean) => {
+    if (disabled) return;
+    const value = isHalf ? index + 0.5 : index + 1;
+    setRating(value);
+  };
+
+  const handleMouseMove = (starIndex: number, event: any) => {
+    if (disabled) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const isLeftHalf = x < rect.width / 2;
+    const hoverValue = starIndex + (isLeftHalf ? 0.5 : 1);
+    setHover(hoverValue);
+  };
+
+  const renderStar = (starIndex: number) => {
+    const fillValue = displayRating - starIndex;
+
+    return (
+      <div
+        key={starIndex}
+        className={`relative transition-transform ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:scale-110'}`}
+        onMouseMove={(e) => handleMouseMove(starIndex, e)}
+        onMouseLeave={() => !disabled && setHover(0)}
+      >
+        {/* 배경 별 (회색) */}
+        <Star className="w-12 h-12 text-gray-300" />
+
+        {!disabled && (
+          <>
+            {/* 클릭 영역 - 왼쪽 절반 (0.5점) */}
+            <div
+              className="absolute top-0 left-0 bottom-0 w-1/2 z-20"
+              onClick={() => handleClick(starIndex, true)}
+            />
+
+            {/* 클릭 영역 - 오른쪽 절반 (1점) */}
+            <div
+              className="absolute top-0 right-0 bottom-0 w-1/2 z-20"
+              onClick={() => handleClick(starIndex, false)}
+            />
+          </>
+        )}
+
+        {/* 채워진 별 */}
+        {fillValue > 0 && (
+          <div
+            className="absolute top-0 left-0 bottom-0 overflow-hidden pointer-events-none"
+            style={{ width: fillValue >= 1 ? '100%' : '50%' }}
+          >
+            <Star className="w-12 h-12 text-yellow-400 fill-yellow-400" />
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="text-center">
+        <h3 className="text-xl font-bold text-gray-800 mb-2">{label}</h3>
+        <p className="text-sm text-gray-600">별점을 선택해주세요 (0.5점 단위)</p>
+      </div>
+
+      <div className="flex justify-center gap-1">
+        {[0, 1, 2, 3, 4].map((i) => renderStar(i))}
+      </div>
+
+      <div className="text-center">
+        <span className="text-2xl font-bold text-yellow-500">{displayRating.toFixed(1)}</span>
+        <span className="text-gray-600 ml-1">/ 5.0</span>
+      </div>
+    </div>
+  );
+}
 
 // 평가 상태 타입
 type EvaluationState = 'enabled' | 'disabled' | 'submitted';
+
+function EvaluationContent({
+  type,
+  menu,
+  rating,
+  setRating,
+  comment,
+  setComment,
+  hover,
+  setHover,
+  state,
+  onSubmit,
+  canSubmit,
+  mealLoading,
+  mealError,
+}: {
+  type: MealTab;
+  menu: string[];
+  rating: number;
+  setRating: (n: number) => void;
+  comment: string;
+  setComment: (s: string) => void;
+  hover: number;
+  setHover: (n: number) => void;
+  state: EvaluationState;
+  onSubmit: () => void;
+  canSubmit: boolean;
+  mealLoading: boolean;
+  mealError: string | null;
+}) {
+  const isLunch = type === 'lunch';
+  const titleText = isLunch ? '중식' : '석식';
+  const isDisabled = state === 'disabled';
+  const isSubmitted = state === 'submitted';
+
+  return (
+    <div className="space-y-6">
+      {mealError ? (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
+          <AlertCircle className="w-5 h-5" />
+          <span className="text-sm">{mealError}</span>
+        </div>
+      ) : null}
+
+      {isSubmitted ? (
+        <div className="p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-green-700">
+          <CheckCircle className="w-5 h-5" />
+          <span className="font-semibold">제출이 완료되었습니다</span>
+        </div>
+      ) : null}
+
+      {isDisabled ? (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-700">
+          <Clock className="w-5 h-5" />
+          <span className="text-sm">{titleText} 평가는 {isLunch ? '12시' : '18시'} 이후부터 가능합니다</span>
+        </div>
+      ) : null}
+
+      <div className="bg-gray-50 rounded-lg p-4">
+        <h3 className="font-semibold text-gray-700 mb-3">오늘의 {titleText} 식단</h3>
+        {mealLoading ? (
+          <div className="text-sm text-gray-500">불러오는 중…</div>
+        ) : menu.length > 0 ? (
+          <div className="space-y-2">
+            {menu.map((item, index) => (
+              <div key={`${titleText}-${index}`} className="text-sm text-gray-600">• {item}</div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-sm text-gray-500">식단 정보가 없습니다</div>
+        )}
+      </div>
+
+      <StarRating
+        rating={rating}
+        setRating={setRating}
+        label="별점 평가"
+        hover={hover}
+        setHover={setHover}
+        disabled={isDisabled || isSubmitted}
+      />
+
+      <div className="space-y-3">
+        <h3 className="font-semibold text-gray-700">추가 의견</h3>
+        <textarea
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder="급식에 대한 의견을 남겨주세요 (필수)"
+          maxLength={200}
+          disabled={isDisabled || isSubmitted}
+          className={`w-full h-24 px-4 py-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-teal-500 ${
+            isDisabled || isSubmitted ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+          }`}
+        />
+        <div className="flex justify-between text-xs text-gray-500">
+          <span>{comment.length}/200</span>
+          {!canSubmit && !isDisabled && !isSubmitted ? (
+            <span className="text-red-500">별점과 의견을 모두 입력해주세요</span>
+          ) : null}
+        </div>
+      </div>
+
+      <button
+        onClick={onSubmit}
+        disabled={!canSubmit || isDisabled || isSubmitted}
+        className={`w-full px-6 py-4 rounded-lg font-semibold flex items-center justify-center gap-2 transition ${
+          canSubmit && !isDisabled && !isSubmitted
+            ? 'bg-teal-500 text-white hover:bg-teal-600'
+            : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+        }`}
+      >
+        <Send className="w-5 h-5" />
+        {isSubmitted ? '제출 완료' : `${titleText} 평가 제출`}
+      </button>
+    </div>
+  );
+}
 
 // 평가 가능 시간 체크 함수
 const checkEvaluationAvailability = (mealType: 'lunch' | 'dinner'): boolean => {
@@ -77,280 +302,118 @@ export function Satisfaction() {
   const lunchState = getLunchState();
   const dinnerState = getDinnerState();
 
-  const todayMenu = {
-    lunch: ['백미밥', '미역국', '제육볶음', '계란찜', '배추김치'],
-    dinner: ['현미밥', '된장찌개', '닭갈비', '시금치나물', '깍두기']
-  };
+  // ==== 오늘 식단(실제 API 기반) ====
+  const todayDateStr = useMemo(() => {
+    const d = new Date();
+    // UTC로 변환되는 toISOString 사용 시 날짜가 하루 밀릴 수 있어서 로컬 기준으로 조합
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }, []);
+
+  const [mealLoading, setMealLoading] = useState(false);
+  const [mealError, setMealError] = useState<string | null>(null);
+  const [todayMenu, setTodayMenu] = useState<{ lunch: string[]; dinner: string[] }>({
+    lunch: [],
+    dinner: [],
+  });
+
+  useEffect(() => {
+    let mounted = true;
+    async function load() {
+      try {
+        setMealLoading(true);
+        setMealError(null);
+
+        const [lunchRes, dinnerRes] = await Promise.allSettled([
+          getDailyMeal({ date: todayDateStr, meal_type: 'LUNCH' }),
+          getDailyMeal({ date: todayDateStr, meal_type: 'DINNER' }),
+        ]);
+
+        const next = { lunch: [] as string[], dinner: [] as string[] };
+        if (lunchRes.status === 'fulfilled') {
+          const d = lunchRes.value;
+          next.lunch = extractMenuNames((d as any).menu_items);
+        }
+
+        if (dinnerRes.status === 'fulfilled') {
+          const d = dinnerRes.value;
+          next.dinner = extractMenuNames((d as any).menu_items);
+        }
+
+        if (!mounted) return;
+        setTodayMenu(next);
+      } catch (e: any) {
+        if (!mounted) return;
+        setMealError(e?.message || '오늘 식단을 불러오지 못했습니다.');
+      } finally {
+        if (mounted) setMealLoading(false);
+      }
+    }
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, [todayDateStr]);
 
   // 제출 가능 여부 체크
   const canSubmitLunch = lunchRating > 0 && lunchComment.trim().length > 0;
   const canSubmitDinner = dinnerRating > 0 && dinnerComment.trim().length > 0;
 
-  const handleLunchSubmit = () => {
+  const handleLunchSubmit = async () => {
     if (!canSubmitLunch) {
       setShowValidationAlert(true);
       return;
     }
 
-    toast.success(`중식 평가가 제출되었습니다!\n별점: ${lunchRating}점\n의견: ${lunchComment}`);
-    setLunchSubmitted(true);
+    if (!todayMenu.lunch || todayMenu.lunch.length === 0) {
+      toast.error('오늘 중식 식단 정보를 찾지 못했습니다.\n(식단이 없거나 조회에 실패했습니다)');
+      return;
+    }
+
+    try {
+      await createSatisfaction({
+        date: todayDateStr,
+        meal_type: 'LUNCH',
+        rating: Math.max(1, Math.min(5, Math.round(lunchRating))),
+        content: lunchComment.trim().slice(0, 200),
+      });
+      toast.success('중식 평가가 제출되었습니다!');
+      setLunchSubmitted(true);
+    } catch (e: any) {
+      toast.error(e?.message || '중식 평가 제출에 실패했습니다.');
+    }
   };
 
-  const handleDinnerSubmit = () => {
+  const handleDinnerSubmit = async () => {
     if (!canSubmitDinner) {
       setShowValidationAlert(true);
       return;
     }
 
-    toast.success(`석식 평가가 제출되었습니다!\n별점: ${dinnerRating}점\n의견: ${dinnerComment}`);
-    setDinnerSubmitted(true);
-  };
+    if (!todayMenu.dinner || todayMenu.dinner.length === 0) {
+      toast.error('오늘 석식 식단 정보를 찾지 못했습니다.\n(식단이 없거나 조회에 실패했습니다)');
+      return;
+    }
 
-  const StarRating = ({ 
-    rating, 
-    setRating, 
-    label,
-    hover,
-    setHover,
-    disabled
-  }: { 
-    rating: number; 
-    setRating: (n: number) => void; 
-    label: string;
-    hover: number;
-    setHover: (n: number) => void;
-    disabled?: boolean;
-  }) => {
-    const displayRating = hover || rating;
+    if (!todayMenu.dinner || todayMenu.dinner.length === 0) {
+      toast.error('오늘 석식 식단 정보를 찾지 못했습니다.\n(식단이 없거나 조회에 실패했습니다)');
+      return;
+    }
 
-    const handleClick = (index: number, isHalf: boolean) => {
-      if (disabled) return;
-      const value = isHalf ? index + 0.5 : index + 1;
-      setRating(value);
-    };
-
-    const handleMouseMove = (starIndex: number, event: React.MouseEvent<HTMLDivElement>) => {
-      if (disabled) return;
-      const rect = event.currentTarget.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const isLeftHalf = x < rect.width / 2;
-      const hoverValue = starIndex + (isLeftHalf ? 0.5 : 1);
-      setHover(hoverValue);
-    };
-
-    const renderStar = (starIndex: number) => {
-      const fillValue = displayRating - starIndex;
-      
-      return (
-        <div
-          key={starIndex}
-          className={`relative transition-transform ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:scale-110'}`}
-          onMouseMove={(e) => handleMouseMove(starIndex, e)}
-          onMouseLeave={() => !disabled && setHover(0)}
-        >
-          {/* 배경 별 (회색) */}
-          <Star className="w-12 h-12 text-gray-300" />
-          
-          {!disabled && (
-            <>
-              {/* 클릭 영역 - 왼쪽 절반 (0.5점) */}
-              <div
-                className="absolute top-0 left-0 bottom-0 w-1/2"
-                onClick={() => handleClick(starIndex, true)}
-              />
-              
-              {/* 클릭 영역 - 오른쪽 절반 (1점) */}
-              <div
-                className="absolute top-0 right-0 bottom-0 w-1/2"
-                onClick={() => handleClick(starIndex, false)}
-              />
-            </>
-          )}
-          
-          {/* 채워진 별 */}
-          {fillValue > 0 && (
-            <div 
-              className="absolute top-0 left-0 overflow-hidden pointer-events-none"
-              style={{
-                width: fillValue >= 1 ? '100%' : '50%'
-              }}
-            >
-              <Star className="w-12 h-12 text-yellow-400 fill-yellow-400" />
-            </div>
-          )}
-        </div>
-      );
-    };
-
-    return (
-      <div className="space-y-3">
-        <h3 className="font-semibold text-gray-700">{label}</h3>
-        <div className="flex gap-1">
-          {[0, 1, 2, 3, 4].map((starIndex) => renderStar(starIndex))}
-        </div>
-        <div className="text-sm text-gray-600">
-          {rating > 0 ? `선택한 점수: ${rating}점` : '별점을 선택해주세요'}
-        </div>
-      </div>
-    );
-  };
-
-  const EvaluationContent = ({ 
-    type,
-    menu,
-    rating,
-    setRating,
-    comment,
-    setComment,
-    hover,
-    setHover,
-    state,
-    onSubmit,
-    canSubmit
-  }: {
-    type: 'lunch' | 'dinner';
-    menu: string[];
-    rating: number;
-    setRating: (n: number) => void;
-    comment: string;
-    setComment: (s: string) => void;
-    hover: number;
-    setHover: (n: number) => void;
-    state: EvaluationState;
-    onSubmit: () => void;
-    canSubmit: boolean;
-  }) => {
-    const isLunch = type === 'lunch';
-    const titleText = isLunch ? '중식' : '석식';
-    const isDisabled = state === 'disabled';
-    const isSubmitted = state === 'submitted';
-    
-    return (
-      <div className="space-y-6">
-        {/* 제출 완료 배지 */}
-        {isSubmitted && (
-          <div className="p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-green-700">
-            <CheckCircle className="w-5 h-5" />
-            <span className="font-semibold">제출이 완료되었습니다</span>
-          </div>
-        )}
-
-        {/* 제목 */}
-        <h2 className="text-2xl font-bold text-gray-800">{titleText} 만족도 평가</h2>
-
-        {/* 오늘의 메뉴 박스 */}
-        <div className={`p-4 rounded-lg border ${
-          isLunch 
-            ? 'bg-orange-50 border-orange-200' 
-            : 'bg-blue-50 border-blue-200'
-        }`}>
-          <div className={`text-sm font-semibold mb-2 ${
-            isLunch ? 'text-orange-600' : 'text-blue-600'
-          }`}>
-            오늘의 {titleText} 메뉴
-          </div>
-          <div className="space-y-1">
-            {menu.map((item, idx) => (
-              <div key={idx} className="text-sm text-gray-700">
-                • {item}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Disabled 상태: 안내 박스만 표시 */}
-        {isDisabled && (
-          <div className="p-6 bg-gray-50 border border-gray-300 rounded-lg text-center">
-            <div className="flex items-center justify-center gap-2 text-gray-700 mb-3">
-              <AlertCircle className="w-6 h-6" />
-              <span className="text-lg font-semibold">평가 가능 시간이 아닙니다</span>
-            </div>
-            <div className="text-sm text-gray-600">
-              평가 가능: {isLunch ? '중식 개시(12:00)' : '석식 개시(18:00)'} 직후 ~ 당일 24:00
-            </div>
-          </div>
-        )}
-
-        {/* Enabled 또는 Submitted 상태: 입력 영역 표시 */}
-        {!isDisabled && (
-          <>
-            {/* 별점 */}
-            <div>
-              <StarRating 
-                rating={rating} 
-                setRating={setRating} 
-                label={`${titleText} 만족도`}
-                hover={hover}
-                setHover={setHover}
-                disabled={isSubmitted}
-              />
-            </div>
-
-            {/* 추가 의견 */}
-            <div>
-              <h3 className="font-semibold text-gray-700 mb-3">추가 의견 (필수)</h3>
-              <textarea
-                value={comment}
-                onChange={(e) => !isSubmitted && setComment(e.target.value)}
-                placeholder={`${titleText}에 대한 의견을 작성해주세요`}
-                className={`w-full p-3 border rounded-lg focus:outline-none focus:ring-2 resize-none transition ${
-                  isLunch 
-                    ? 'focus:ring-orange-500 border-gray-300' 
-                    : 'focus:ring-blue-500 border-gray-300'
-                } ${
-                  isSubmitted 
-                    ? 'bg-gray-100 cursor-not-allowed opacity-60' 
-                    : ''
-                }`}
-                rows={4}
-                disabled={isSubmitted}
-              />
-              <div className="text-xs text-gray-500 mt-1">
-                {comment.trim().length > 0 
-                  ? `${comment.trim().length}자 입력됨` 
-                  : '의견을 입력해주세요 (최소 1자 이상)'}
-              </div>
-            </div>
-
-            {/* 제출 버튼 */}
-            <button
-              onClick={onSubmit}
-              disabled={isSubmitted || !canSubmit}
-              className={`w-full px-6 py-3 rounded-lg transition flex items-center justify-center gap-2 font-semibold ${
-                isSubmitted
-                  ? 'bg-gray-400 text-white cursor-not-allowed'
-                  : isLunch
-                    ? canSubmit
-                      ? 'bg-orange-500 text-white hover:bg-orange-600'
-                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : canSubmit
-                      ? 'bg-blue-500 text-white hover:bg-blue-600'
-                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              }`}
-            >
-              {isSubmitted ? (
-                <>
-                  <CheckCircle className="w-5 h-5" />
-                  제출 완료
-                </>
-              ) : (
-                <>
-                  <Send className="w-5 h-5" />
-                  {titleText} 평가 제출
-                </>
-              )}
-            </button>
-
-            {/* 제출 조건 안내 */}
-            {!isSubmitted && (
-              <div className="text-xs text-gray-500 text-center">
-                {!canSubmit && '별점과 추가 의견을 모두 입력해야 제출할 수 있습니다'}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    );
+    try {
+      await createSatisfaction({
+        date: todayDateStr,
+        meal_type: 'DINNER',
+        rating: Math.max(1, Math.min(5, Math.round(dinnerRating))),
+        content: dinnerComment.trim().slice(0, 200),
+      });
+      toast.success('석식 평가가 제출되었습니다!');
+      setDinnerSubmitted(true);
+    } catch (e: any) {
+      toast.error(e?.message || '석식 평가 제출에 실패했습니다.');
+    }
   };
 
   return (

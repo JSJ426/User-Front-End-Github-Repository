@@ -16,13 +16,37 @@ interface BoardProps {
   darkMode?: boolean;
   onPageChange: (page: PageType, postId?: string) => void;
   posts: BoardPost[];
+  loading?: boolean;
+  error?: string | null;
+  onRefresh?: () => void;
 }
 
-export function Board({ darkMode = false, onPageChange, posts }: BoardProps) {
+export function Board({ darkMode = false, onPageChange, posts, loading = false, error = null, onRefresh }: BoardProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('전체');
 
   const categories = ['전체', '공지', '건의', '신메뉴', '기타의견'];
+
+  if (loading) {
+    return <div className={`p-6 ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>게시판을 불러오는 중...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className={`p-6 ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+        <h3 className={`font-semibold mb-2 ${darkMode ? 'text-gray-100' : 'text-gray-800'}`}>게시판을 불러오지 못했습니다</h3>
+        <pre className={`text-sm whitespace-pre-wrap ${darkMode ? 'text-red-300' : 'text-red-600'}`}>{error}</pre>
+        {onRefresh && (
+          <button
+            onClick={onRefresh}
+            className={`mt-4 px-4 py-2 rounded-lg ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+          >
+            다시 시도
+          </button>
+        )}
+      </div>
+    );
+  }
 
   const filteredPosts = posts.filter((post) => {
     const matchesSearch = post.title.toLowerCase().includes(searchQuery.toLowerCase()) ||

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 
 import LoginPage from './components/LoginPage';
-import FindIdPage from './components/FindIdPage';
 import FindPasswordPage from './components/FindPasswordPage';
 import StudentSignUpPage from './components/StudentSignUpPage';
 import MainApp from './MainApp';
@@ -9,15 +8,15 @@ import MainApp from './MainApp';
 /**
  * Hash Router (react-router-dom 없이)
  * - #/login
- * - #/findId
  * - #/findPassword
  * - #/signUpStudent
  * - #/app
+ *
+ * ✅ findId 라우트 제거 (UI는 건드리지 않음)
  */
 
 export type RouteKey =
   | 'login'
-  | 'findId'
   | 'findPassword'
   | 'signUpStudent'
   | 'app';
@@ -27,7 +26,6 @@ function readHash(): RouteKey {
   const key = (raw.split('?')[0] || '').trim();
   switch (key) {
     case 'login':
-    case 'findId':
     case 'findPassword':
     case 'signUpStudent':
     case 'app':
@@ -58,17 +56,14 @@ export default function App() {
 
   switch (route) {
     case 'login':
-      return <LoginPage onNavigate={onNavigate} />;
-    case 'findId':
-      return <FindIdPage onNavigate={onNavigate} />;
+      return <LoginPage onNavigate={onNavigate as any} />;
     case 'findPassword':
-      return <FindPasswordPage onNavigate={onNavigate} />;
+      return <FindPasswordPage onNavigate={onNavigate as any} />;
     case 'signUpStudent':
-      return <StudentSignUpPage onNavigate={onNavigate} />;
+      return <StudentSignUpPage onNavigate={onNavigate as any} />;
     case 'app':
-      // 로그인 보호는 요청대로 제거
       return <MainApp onLogout={() => onNavigate('login')} />;
     default:
-      return <LoginPage onNavigate={onNavigate} />;
+      return <LoginPage onNavigate={onNavigate as any} />;
   }
 }

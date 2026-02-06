@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { User, Lock, Mail, Phone, Eye, EyeOff, Calendar, Building2, Check, Search } from 'lucide-react';
 import AuthHeader from './AuthHeader';
 import TermsModal from './TermsModal';
 import PrivacyModal from './PrivacyModal';
 import { Footer } from './Footer';
 import { signup as apiSignup } from '../api/auth';
+import { searchSchools, type SchoolSearchItem } from '../api/schools';
 
 type PageType =
   | 'login'
@@ -33,24 +34,7 @@ const allergyItems = [
   { id: 12, name: '토마토' },
 ];
 
-// 학교 목록
-const schools = [
-  '부산고등학교',
-  '부산제일고등학교',
-  '부산중앙고등학교',
-  '부산여자고등학교',
-  '해운대고등학교',
-  '동래고등학교',
-  '경남고등학교',
-  '개성고등학교',
-  '부산중학교',
-  '부산제일중학교',
-  '해운대중학교',
-  '동래중학교',
-  '부산초등학교',
-  '해운대초등학교',
-  '동래초등학교',
-];
+// ✅ 학교는 나이스 검색 API로 가져온다 (school_id 없는 학교는 선택 불가)
 
 export default function StudentSignUpPage({ onNavigate }: StudentSignUpPageProps) {
   const [step, setStep] = useState(1); // 1 or 2
@@ -79,7 +63,15 @@ export default function StudentSignUpPage({ onNavigate }: StudentSignUpPageProps
   // 학교 검색 관련 상태
   const [schoolSearchQuery, setSchoolSearchQuery] = useState('');
   const [showSchoolDropdown, setShowSchoolDropdown] = useState(false);
-  const [filteredSchools, setFilteredSchools] = useState<string[]>([]);
+  const [schoolResults, setSchoolResults] = useState<SchoolSearchItem[]>([]);
+  const [schoolLoading, setSchoolLoading] = useState(false);
+  const [schoolError, setSchoolError] = useState<string | null>(null);
+  const [selectedSchool, setSelectedSchool] = useState<SchoolSearchItem | null>(null);
+
+  const selectableSchools = useMemo(
+    () => schoolResults.filter((s) => s.school_id !== null),
+    [schoolResults]
+  );
 
   const handleChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -102,7 +94,7 @@ export default function StudentSignUpPage({ onNavigate }: StudentSignUpPageProps
       formData.password === formData.confirmPassword &&
       formData.name.trim() !== '' &&
       formData.phone.trim() !== '' &&
-      formData.school.trim() !== '' &&
+      selectedSchool?.school_id != null &&
       formData.grade.trim() !== '' &&
       formData.class.trim() !== '' &&
       formData.number.trim() !== ''
@@ -137,13 +129,36 @@ export default function StudentSignUpPage({ onNavigate }: StudentSignUpPageProps
     return;
   }
 
-  // 최소 스펙(사용자 API 명세서): id, pw, name
-  const id = (formData.email || '').trim();
+  // ✅ 학교 선택 필수 (school_id가 있는 학교만 가입 가능)
+  if (!selectedSchool?.school_id) {
+    alert('학교를 검색해서 목록에서 선택해주세요. (가입 가능한 학교만 표시됩니다)');
+    return;
+  }
+
+  const username = (formData.email || '').trim();
   const pw = formData.password;
   const name = (formData.name || '').trim();
+  const phone = (formData.phone || '').trim();
+  const grade = Number(formData.grade);
+  const class_no = Number(formData.class);
 
-  if (!id || !pw || !name) {
+  if (!username || !pw || !name) {
     alert('이메일(아이디), 비밀번호, 이름은 필수입니다.');
+    return;
+  }
+
+  if (!phone) {
+    alert('전화번호는 필수입니다.');
+    return;
+  }
+
+  if (!Number.isFinite(grade) || grade <= 0) {
+    alert('학년을 선택해주세요.');
+    return;
+  }
+
+  if (!Number.isFinite(class_no) || class_no <= 0) {
+    alert('반을 입력해주세요.');
     return;
   }
 
@@ -154,7 +169,17 @@ export default function StudentSignUpPage({ onNavigate }: StudentSignUpPageProps
 
   try {
     setIsSubmitting(true);
-    await apiSignup({ id, pw, name });
+    // ✅ 학교검색 API에서 확보한 school_id를 기반으로 가입
+    await apiSignup({
+      school_id: selectedSchool.school_id,
+      username,
+      pw,
+      name,
+      phone,
+      grade,
+      class_no,
+      allergy_codes: selectedAllergies,
+    });
     alert('회원가입이 완료되었습니다! 이제 로그인해주세요.');
     onNavigate('login');
   } catch (err: any) {
@@ -165,30 +190,48 @@ export default function StudentSignUpPage({ onNavigate }: StudentSignUpPageProps
   }
 };
 
-  // 학교 검색 핸들러
-  const handleSchoolSearch = (query: string) => {
+  // 학교 입력 변경: 타이핑은 가능하지만, "선택"을 해야 가입 가능
+  const handleSchoolInputChange = (query: string) => {
     setSchoolSearchQuery(query);
-    // 입력값을 formData에도 실시간 반영
     setFormData((prev) => ({ ...prev, school: query }));
-    
-    if (query) {
-      const filtered = schools.filter((school) =>
-        school.toLowerCase().includes(query.toLowerCase())
-      );
-      setFilteredSchools(filtered);
-      setShowSchoolDropdown(true);
-    } else {
-      setFilteredSchools([]);
+    setSelectedSchool(null); // 타이핑하면 선택 해제
+    setSchoolError(null);
+    if (!query.trim()) {
+      setSchoolResults([]);
       setShowSchoolDropdown(false);
+    } else {
+      setShowSchoolDropdown(true);
     }
   };
 
-  const handleSchoolSelect = (school: string) => {
-    setFormData((prev) => ({ ...prev, school }));
-    setSchoolSearchQuery(school);
-    setFilteredSchools([]);
+  const handleSchoolSelect = (item: SchoolSearchItem) => {
+    setSelectedSchool(item);
+    setFormData((prev) => ({ ...prev, school: item.school_name }));
+    setSchoolSearchQuery(item.school_name);
     setShowSchoolDropdown(false);
   };
+
+  // 학교 검색 (디바운스)
+  useEffect(() => {
+    const q = schoolSearchQuery.trim();
+    if (!q) return;
+
+    const t = setTimeout(async () => {
+      try {
+        setSchoolLoading(true);
+        setSchoolError(null);
+        const res = await searchSchools(q);
+        setSchoolResults(res);
+      } catch (e: any) {
+        setSchoolError(e?.message || '학교 검색에 실패했습니다.');
+        setSchoolResults([]);
+      } finally {
+        setSchoolLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(t);
+  }, [schoolSearchQuery]);
 
   return (
     <div className="min-h-screen bg-[#F6F7F8] flex flex-col">
@@ -383,11 +426,9 @@ export default function StudentSignUpPage({ onNavigate }: StudentSignUpPageProps
                         id="school"
                         type="text"
                         value={schoolSearchQuery}
-                        onChange={(e) => handleSchoolSearch(e.target.value)}
+                        onChange={(e) => handleSchoolInputChange(e.target.value)}
                         onFocus={() => {
-                          if (schoolSearchQuery && filteredSchools.length > 0) {
-                            setShowSchoolDropdown(true);
-                          }
+                          if (schoolSearchQuery.trim()) setShowSchoolDropdown(true);
                         }}
                         onBlur={() => {
                           // 드롭다운 클릭을 위해 딜레이 추가
@@ -402,27 +443,39 @@ export default function StudentSignUpPage({ onNavigate }: StudentSignUpPageProps
                       </div>
                       
                       {/* Dropdown for search results */}
-                      {showSchoolDropdown && schoolSearchQuery && (
+                      {showSchoolDropdown && schoolSearchQuery.trim() && (
                         <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-xl shadow-lg max-h-60 overflow-y-auto">
-                          {filteredSchools.length > 0 ? (
-                            filteredSchools.map((school) => (
+                          {schoolLoading ? (
+                            <div className="px-4 py-3 text-gray-500 text-sm">검색 중...</div>
+                          ) : schoolError ? (
+                            <div className="px-4 py-3 text-red-600 text-sm">{schoolError}</div>
+                          ) : selectableSchools.length > 0 ? (
+                            selectableSchools.map((item) => (
                               <button
-                                key={school}
+                                key={`${item.region_code}-${item.school_code}`}
                                 type="button"
-                                onClick={() => handleSchoolSelect(school)}
+                                onClick={() => handleSchoolSelect(item)}
                                 className="w-full px-4 py-3 text-left hover:bg-[#00B3A4]/5 transition-colors text-gray-700 border-b border-gray-100 last:border-b-0"
                               >
-                                {school}
+                                <div className="font-medium">{item.school_name}</div>
+                                <div className="text-xs text-gray-500 mt-0.5">{item.address}</div>
                               </button>
                             ))
                           ) : (
                             <div className="px-4 py-3 text-gray-500 text-sm">
-                              검색 결과가 없습니다. 학교명을 직접 입력해주세요.
+                              가입 가능한 학교가 없습니다. (학교 계정/영양사 가입으로 school_id가 생성된 학교만 표시됩니다)
                             </div>
                           )}
                         </div>
                       )}
                     </div>
+                    {/* 선택된 학교 표시 (school_id 기반) */}
+                    {selectedSchool?.school_id && (
+                      <div className="mt-2 text-xs text-gray-500">
+                        선택됨: <span className="font-medium text-gray-700">{selectedSchool.school_name}</span>
+                        <span className="ml-2">(school_id: {selectedSchool.school_id})</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Grade, Class, Number */}
