@@ -2,7 +2,6 @@ import { Home } from 'lucide-react';
 
 type PageType =
   | 'login'
-  | 'findId'
   | 'findPassword'
   | 'signUpStudent'
   | 'app';
@@ -25,7 +24,7 @@ export default function AuthHeader({ onNavigate }: AuthHeaderProps) {
             <Home className="w-5 h-5" />
           </div>
           <div className="leading-tight text-left">
-          {/* 더미 학교명 제거: 실제 학교명은 로그인/내정보 기반으로 필요 시 별도 표시 */}
+            {/* 더미 학교명 제거: 실제 학교명은 로그인/내정보 기반으로 필요 시 별도 표시 */}
             <div className="text-base font-semibold text-gray-900">학교 급식 관리 시스템</div>
           </div>
         </button>

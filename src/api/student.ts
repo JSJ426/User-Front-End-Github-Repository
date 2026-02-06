@@ -98,81 +98,88 @@ export type ApiResponse<T> = {
   details?: any;
 };
 
-// 백 응답 형태가 환경마다 달라(중첩 data, 다른 필드명 등) 화면이 빈칸이 되는 문제가 있어
-// 여기서 최대한 정규화합니다.
-function unwrapData(raw: any) {
-  let cur: any = raw;
-  for (let i = 0; i < 5; i++) {
-    if (!cur || typeof cur !== 'object') break;
-
-    // 흔한 래퍼: { status, message, data }
-    if ('data' in cur && (('status' in cur) || ('message' in cur) || ('details' in cur))) {
-      cur = (cur as any).data;
-      continue;
-    }
-
-    // 어떤 환경에서는 { data: { ... } } 로만 오는 경우도 있음
-    if ('data' in cur && Object.keys(cur).length === 1) {
-      cur = (cur as any).data;
-      continue;
-    }
-    break;
-  }
-  return cur;
+// -----------------------------
+// Response normalizer
+// 백/프 DTO 필드명이 조금씩 달라도 화면이 비지 않도록, 최대한 안전하게 매핑합니다.
+// -----------------------------
+function toNumberOrNull(v: any): number | null {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
-function normalizeAllergyCodes(input: any): number[] {
-  if (!input) return [];
-
-  // [1,2,3]
-  if (Array.isArray(input) && input.every((x) => typeof x === 'number')) return input as number[];
-
-  // ['1','2']
-  if (Array.isArray(input) && input.every((x) => typeof x === 'string')) {
-    return (input as string[])
-      .map((s) => Number(String(s).trim()))
-      .filter((n) => Number.isFinite(n));
+function normalizeAllergyCodes(v: any): number[] {
+  // [1,2] | ["1","2"] | "1,2" | [{id:1},{allergyCode:2}] 등 최대한 대응
+  if (Array.isArray(v)) {
+    const nums = v
+      .map((x) => {
+        if (typeof x === 'number' || typeof x === 'string') return toNumberOrNull(x);
+        if (x && typeof x === 'object') return toNumberOrNull((x as any).id ?? (x as any).allergyCode ?? (x as any).code);
+        return null;
+      })
+      .filter((x): x is number => x !== null);
+    return Array.from(new Set(nums));
   }
-
-  // [{id:1}, {code:2}] 같은 형태
-  if (Array.isArray(input)) {
-    return input
-      .map((x) => Number((x as any)?.id ?? (x as any)?.code ?? (x as any)?.allergyCode ?? (x as any)?.value))
-      .filter((n) => Number.isFinite(n));
+  if (typeof v === 'string') {
+    const nums = v
+      .split(',')
+      .map((s) => toNumberOrNull(s.trim()))
+      .filter((x): x is number => x !== null);
+    return Array.from(new Set(nums));
   }
-
   return [];
 }
 
 function normalizeStudentMe(raw: any): StudentMe {
-  const me = unwrapData(raw);
-  const name = String((me as any)?.name ?? (me as any)?.studentName ?? (me as any)?.username ?? '');
-  const phone = String((me as any)?.phone ?? (me as any)?.phoneNumber ?? (me as any)?.tel ?? (me as any)?.mobile ?? '');
-  const grade = Number((me as any)?.grade ?? (me as any)?.schoolGrade ?? (me as any)?.school_grade ?? 1);
-  const class_no = Number(
-    (me as any)?.class_no ?? (me as any)?.classNo ?? (me as any)?.classNO ?? (me as any)?.class ?? (me as any)?.classNumber ?? 1
-  );
-  const allergy_codes = normalizeAllergyCodes(
-    (me as any)?.allergy_codes ?? (me as any)?.allergyCodes ?? (me as any)?.allergies ?? (me as any)?.allergyList
-  );
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const name = src.name ?? src.studentName ?? src.username ?? src.userName ?? '';
+  const phone = src.phone ?? src.phoneNumber ?? src.tel ?? src.mobile ?? '';
+  const grade = toNumberOrNull(src.grade ?? src.schoolGrade) ?? 1;
+  const classNo = toNumberOrNull(src.class_no ?? src.classNo ?? src.class) ?? 1;
+  const allergy_codes = normalizeAllergyCodes(src.allergy_codes ?? src.allergyCodes ?? src.allergies);
 
   return {
-    name,
-    phone,
-    grade: Number.isFinite(grade) ? grade : 1,
-    class_no: Number.isFinite(class_no) ? class_no : 1,
+    name: String(name ?? ''),
+    email: src.email ? String(src.email) : undefined,
+    phone: String(phone ?? ''),
+    grade,
+    class_no: classNo,
     allergy_codes,
-    email: (me as any)?.email,
   };
 }
 
-export async function getStudentMe() {
-  // ✅ 회원정보 화면은 "항상 백에서 최신값"을 보여줘야 하므로 캐시 폴백 없이 그대로 호출
-  const raw = await requestJson<any>('GET', '/api/student/me');
+function unwrapData(raw: any, maxDepth = 5): any {
+  let cur = raw;
+  for (let i = 0; i < maxDepth; i++) {
+    if (cur && typeof cur === 'object' && 'data' in cur) cur = (cur as any).data;
+    else break;
+  }
+  return cur;
+}
 
-  // 어떤 래퍼 형태로 오든 StudentMe 로 정규화해서 반환
-  const me = normalizeStudentMe(raw);
-  return { status: 'success', message: '', data: me } as ApiResponse<StudentMe>;
+export async function getStudentMe() {
+  // ✅ 백이 GET /api/student/me 를 지원하지 않는 환경이 있어 캐시 폴백
+  try {
+    const raw = await requestJson<any>('GET', '/api/student/me');
+    const unwrapped = unwrapData(raw);
+    const me = normalizeStudentMe(unwrapped);
+    // 캐시 업데이트
+    try {
+      localStorage.setItem('student_me_cache', JSON.stringify(me));
+    } catch {}
+    return {
+      status: (raw as any)?.status ?? 'success',
+      message: (raw as any)?.message ?? '',
+      data: me,
+      details: (raw as any)?.details,
+    } as ApiResponse<StudentMe>;
+  } catch (e: any) {
+    // 405/500 등으로 GET이 막힌 경우 -> 캐시 사용
+    const cached = getStudentMeCache();
+    if (cached) {
+      return { status: 'success', message: 'cached', data: cached } as ApiResponse<StudentMe>;
+    }
+    throw e;
+  }
 }
 
 export function getStudentMeCache(): StudentMe | null {
@@ -202,14 +209,56 @@ export function setStudentMeCache(next: Partial<StudentMe>) {
 }
 
 export async function updateStudentMe(body: Partial<StudentMe>) {
-  // 백엔드가 PATCH를 지원하지 않아서 PUT으로 고정
-  const raw = await requestJson<any>('PUT', '/api/student/me', { body });
+  // ✅ 중요: 백엔드 StudentUpdateRequest가 name/phone/grade/classNo 등을 NotNull/NotBlank로 검증함
+  //    따라서 프론트에서 "부분 업데이트"(예: allergy_codes만)로 PUT을 보내면 null 검증 실패가 발생한다.
+  //    -> 캐시(또는 GET /api/student/me)에서 기존 값을 끌어와서 "회원정보 수정 + 알레르기"를
+  //       한 번에(풀 바디) 제출하도록 보정한다.
 
-  // 저장 응답도 정규화
-  const me = normalizeStudentMe(raw);
+  // 1) 우선 캐시에서 기존 값 확보
+  const cached = getStudentMeCache();
+  let merged: StudentMe = {
+    name: String((cached as any)?.name ?? ''),
+    phone: String((cached as any)?.phone ?? ''),
+    grade: Number((cached as any)?.grade ?? 0) || 1,
+    class_no: Number((cached as any)?.class_no ?? 0) || 1,
+    allergy_codes: Array.isArray((cached as any)?.allergy_codes) ? (cached as any).allergy_codes : [],
+    email: (cached as any)?.email,
+  };
+  merged = { ...merged, ...body } as StudentMe;
+
+  // 2) 필수값이 비어있다면(캐시가 없었거나 초기 상태) -> 가능하면 서버에서 최신 조회 후 병합
+  if (!merged.name || !merged.phone || merged.grade == null || merged.class_no == null) {
+    try {
+      const rawMe = await requestJson<any>('GET', '/api/student/me');
+      const unwrappedMe = unwrapData(rawMe);
+      const me = normalizeStudentMe(unwrappedMe);
+      merged = { ...me, ...body } as StudentMe;
+    } catch {
+      // GET이 막힌 환경(405 등)에서는 여기로 떨어질 수 있음
+    }
+  }
+
+  // 3) 최종적으로 백엔드 DTO가 요구하는 필수 필드를 항상 포함해서 제출
+  const payload = {
+    name: String(merged.name ?? ''),
+    phone: String(merged.phone ?? ''),
+    grade: Number(merged.grade ?? 1),
+    class_no: Number(merged.class_no ?? 1),
+    allergy_codes: Array.isArray(merged.allergy_codes) ? merged.allergy_codes : [],
+  } as Partial<StudentMe>;
+
+  // 백엔드가 PATCH를 지원하지 않아서 PUT으로 고정
+  const raw = await requestJson<any>('PUT', '/api/student/me', { body: payload });
+  const unwrapped = unwrapData(raw);
+  const me = normalizeStudentMe(unwrapped);
   // ✅ 저장 성공 시 캐시 갱신
   setStudentMeCache(me);
-  return { status: 'success', message: '', data: me } as ApiResponse<StudentMe>;
+  return {
+    status: (raw as any)?.status ?? 'success',
+    message: (raw as any)?.message ?? '',
+    data: me,
+    details: (raw as any)?.details,
+  } as ApiResponse<StudentMe>;
 }
 
 export type ChangePasswordBody = {
@@ -218,5 +267,11 @@ export type ChangePasswordBody = {
 };
 
 export async function changePassword(body: ChangePasswordBody) {
-  return await requestJson<ApiResponse<any>>('PUT', '/api/student/me/password', { body });
+  // 백엔드: PUT /api/auth/password/change/student
+  // DTO: { current_password, new_password }
+  const payload = {
+    current_password: body.currentPassword,
+    new_password: body.newPassword,
+  };
+  return await requestJson<ApiResponse<any>>('PUT', '/api/auth/password/change/student', { body: payload });
 }

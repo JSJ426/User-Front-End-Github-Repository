@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { User, Mail, Phone, School, Save, Key } from 'lucide-react';
+import { User, Mail, Phone, School, Save, AlertTriangle, Key, Trash2, Eye, EyeOff } from 'lucide-react';
 import { PageType } from '../App';
-import { getStudentMe, updateStudentMe } from '../api/student';
+import { updateStudentMe } from '../api/student';
+import { requestJson } from '../api/http';
+import { withdrawStudentAccount } from '../api/auth';
 import { toast } from 'sonner@2.0.3';
 
 // 휴대폰 번호를 입력할 때 자동으로 하이픈을 포맷팅합니다.
@@ -22,62 +24,50 @@ interface ProfileEditProps {
 export function ProfileEdit({ onPageChange }: ProfileEditProps) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [original, setOriginal] = useState<{ name: string; phone: string; grade: string; classNo: string; email: string; allergyCodes: number[] } | null>(null);
-  // ✅ 이름/전화번호는 "회색"(변경 전처럼 보이게)으로 보여주되,
-  // 실제 값은 항상 입력칸에 유지해서 빈 값 저장/검증 오류를 방지합니다.
-  const [nameEdited, setNameEdited] = useState(false);
-  const [phoneEdited, setPhoneEdited] = useState(false);
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawPw, setWithdrawPw] = useState('');
+  const [showWithdrawPw, setShowWithdrawPw] = useState(false);
+  const [original, setOriginal] = useState<{ name: string; phone: string; grade: string; class: string; email: string } | null>(null);
+  // "변경 전" 값을 입력칸 안에 회색 텍스트로 보여주고,
+  // 최초 포커스 시 자동으로 지우기 위한 플래그
+  const [nameDirty, setNameDirty] = useState(false);
+  const [phoneDirty, setPhoneDirty] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     email: '', // 백에서 내려주지 않아서 표시용(비활성)
     phone: '',
     grade: '1',
-    classNo: '1',
-    allergyCodes: [] as number[],
+    class: '1',
   });
 
-  const allergyItems = [
-    { id: 1, name: '난류' },
-    { id: 2, name: '우유' },
-    { id: 3, name: '메밀' },
-    { id: 4, name: '땅콩' },
-    { id: 5, name: '대두' },
-    { id: 6, name: '밀' },
-    { id: 7, name: '고등어' },
-    { id: 8, name: '게' },
-    { id: 9, name: '새우' },
-    { id: 10, name: '돼지고기' },
-    { id: 11, name: '복숭아' },
-    { id: 12, name: '토마토' },
-  ];
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
         setLoading(true);
-        // ✅ 요구사항: 캐시 사용 X, 무조건 백에서 최신 회원정보를 조회
-        const res = await getStudentMe();
-        const me = res.data;
-        const email = String((me as any)?.email || localStorage.getItem('username') || localStorage.getItem('user_id') || '');
+
+        // ✅ 무조건 백엔드에서 최신 정보 조회
+        const raw = await requestJson<any>('GET', '/api/student/me');
+
+        const name = String(raw?.name ?? raw?.studentName ?? raw?.student_name ?? '').trim();
+        const phone = String(raw?.phone ?? raw?.phoneNumber ?? raw?.tel ?? '').trim();
+        const grade = String(raw?.grade ?? raw?.schoolGrade ?? 1);
+        const classNo = String(raw?.class_no ?? raw?.classNo ?? 1);
+        const email = String(raw?.email ?? raw?.loginId ?? raw?.username ?? '').trim();
 
         const o = {
-          name: String(me?.name || ''),
-          phone: formatPhoneNumber(String(me?.phone || '')),
-          grade: String(me?.grade ?? 1),
-          classNo: String((me as any)?.class_no ?? (me as any)?.classNo ?? 1),
+          name,
+          phone: formatPhoneNumber(phone),
+          grade,
+          class: classNo,
           email,
-          allergyCodes: Array.isArray((me as any)?.allergy_codes)
-            ? (me as any).allergy_codes
-            : Array.isArray((me as any)?.allergyCodes)
-            ? (me as any).allergyCodes
-            : [],
         };
 
         if (mounted) {
           setOriginal(o);
-          setNameEdited(false);
-          setPhoneEdited(false);
+          setNameDirty(false);
+          setPhoneDirty(false);
           setFormData((prev) => ({ ...prev, ...o }));
         }
       } catch (e: any) {
@@ -92,9 +82,9 @@ export function ProfileEdit({ onPageChange }: ProfileEditProps) {
   }, []);
 
   const handleChange = (field: string, value: string) => {
-    if (field === 'name') setNameEdited(true);
+    if (field === 'name') setNameDirty(true);
     if (field === 'phone') {
-      setPhoneEdited(true);
+      setPhoneDirty(true);
       value = formatPhoneNumber(value);
     }
     setFormData({ ...formData, [field]: value });
@@ -103,43 +93,60 @@ export function ProfileEdit({ onPageChange }: ProfileEditProps) {
   const handleSubmit = async () => {
     try {
       setSaving(true);
-      const safeName = formData.name.trim();
-      const safePhone = formData.phone.trim();
-      const safeGrade = Number(formData.grade);
-      const safeClassNo = Number(formData.classNo);
+      const safeName = (() => {
+        const v = formData.name.trim();
+        // 사용자가 "변경 전" 값을 지우고 입력을 안 한 경우(빈 값 저장 방지)
+        if (nameDirty && v === '' && original?.name) return original.name;
+        return v;
+      })();
 
-      if (!safeName) {
-        toast.error('이름은 필수 입력입니다.');
-        return;
-      }
-      if (!safePhone) {
-        toast.error('전화번호는 필수 입력입니다.');
-        return;
-      }
-      if (!Number.isFinite(safeGrade) || safeGrade < 1) {
-        toast.error('학년을 선택해주세요.');
-        return;
-      }
-      if (!Number.isFinite(safeClassNo) || safeClassNo < 1) {
-        toast.error('반을 선택해주세요.');
-        return;
-      }
+      const safePhone = (() => {
+        const v = formData.phone.trim();
+        if (phoneDirty && v === '' && original?.phone) return original.phone;
+        return v;
+      })();
 
-      // ✅ 모든 변경사항(알레르기 포함)을 한 번에 저장
       const payload = {
         name: safeName,
         phone: safePhone,
-        grade: safeGrade,
-        class_no: safeClassNo,
-        allergy_codes: formData.allergyCodes,
+        grade: Number(formData.grade),
+        class_no: Number(formData.class),
       };
-
       await updateStudentMe(payload);
       toast.success('회원정보가 수정되었습니다!');
     } catch (e: any) {
       toast.error(e?.message || '회원정보 수정에 실패했습니다.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleWithdraw = async () => {
+    const pw = withdrawPw.trim();
+    if (!pw) {
+      toast.error('탈퇴를 위해 비밀번호를 입력해 주세요.');
+      return;
+    }
+
+    const ok = window.confirm('정말 회원탈퇴 하시겠습니까?\n탈퇴 후에는 복구할 수 없습니다.');
+    if (!ok) return;
+
+    try {
+      setWithdrawing(true);
+      await withdrawStudentAccount({ pw });
+      toast.success('회원탈퇴가 완료되었습니다.');
+
+      // ✅ 로그아웃/초기화 후 로그인으로 이동
+      try {
+        // App.tsx의 hash-router와 맞춤
+        window.location.hash = '/login';
+      } catch {}
+    } catch (e: any) {
+      toast.error(e?.message || '회원탈퇴에 실패했습니다.');
+    } finally {
+      setWithdrawing(false);
+      setWithdrawPw('');
+      setShowWithdrawPw(false);
     }
   };
 
@@ -159,7 +166,7 @@ export function ProfileEdit({ onPageChange }: ProfileEditProps) {
             </div>
             <div>
               <h3 className="font-semibold text-gray-800">{formData.name || '사용자'}</h3>
-              <p className="text-sm text-gray-600">{formData.grade}학년 {formData.classNo}반</p>
+              <p className="text-sm text-gray-600">{formData.grade}학년 {formData.class}반</p>
             </div>
           </div>
 
@@ -173,9 +180,15 @@ export function ProfileEdit({ onPageChange }: ProfileEditProps) {
               <input
                 type="text"
                 value={formData.name}
-                onChange={(e) => handleChange('name', e.target.value)}
+                onFocus={() => {
+                  if (!nameDirty) setNameDirty(true);
+                }}
+                onChange={(e) => {
+                  setNameDirty(true);
+                  handleChange('name', e.target.value);
+                }}
                 className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${
-                  !nameEdited ? 'text-gray-400' : 'text-gray-900'
+                  !nameDirty ? 'text-gray-400' : 'text-gray-900'
                 }`}
               />
             </div>
@@ -203,9 +216,15 @@ export function ProfileEdit({ onPageChange }: ProfileEditProps) {
                 type="tel"
                 inputMode="numeric"
                 value={formData.phone}
-                onChange={(e) => handleChange('phone', e.target.value)}
+                onFocus={() => {
+                  if (!phoneDirty) setPhoneDirty(true);
+                }}
+                onChange={(e) => {
+                  setPhoneDirty(true);
+                  handleChange('phone', e.target.value);
+                }}
                 className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${
-                  !phoneEdited ? 'text-gray-400' : 'text-gray-900'
+                  !phoneDirty ? 'text-gray-400' : 'text-gray-900'
                 }`}
               />
             </div>
@@ -232,48 +251,14 @@ export function ProfileEdit({ onPageChange }: ProfileEditProps) {
                   반
                 </label>
                 <select
-                  value={formData.classNo}
-                  onChange={(e) => handleChange('classNo', e.target.value)}
+                  value={formData.class}
+                  onChange={(e) => handleChange('class', e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
                 >
                   {[...Array(10)].map((_, i) => (
                     <option key={i + 1} value={i + 1}>{i + 1}반</option>
                   ))}
                 </select>
-              </div>
-            </div>
-
-            {/* 알레르기 (프로필 수정과 함께 저장) */}
-            <div className="pt-2">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                알레르기 정보
-              </label>
-              <p className="text-xs text-gray-500 mb-3">해당하는 항목을 모두 선택하세요. (저장하기를 눌러야 반영됩니다)</p>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {allergyItems.map((a) => {
-                  const checked = formData.allergyCodes.includes(a.id);
-                  return (
-                    <label
-                      key={a.id}
-                      className={`flex items-center gap-2 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 ${
-                        checked ? 'ring-1 ring-teal-400' : ''
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => {
-                          const next = e.target.checked
-                            ? Array.from(new Set([...formData.allergyCodes, a.id]))
-                            : formData.allergyCodes.filter((c) => c !== a.id);
-                          setFormData((prev) => ({ ...prev, allergyCodes: next }));
-                        }}
-                        className="rounded text-teal-500"
-                      />
-                      <span className="text-sm text-gray-700">{a.name}</span>
-                    </label>
-                  );
-                })}
               </div>
             </div>
           </div>
@@ -295,6 +280,21 @@ export function ProfileEdit({ onPageChange }: ProfileEditProps) {
         </div>
       </div>
 
+      {/* 알레르기 정보 */}
+      <div className="bg-white rounded-lg shadow-md p-6 max-w-2xl">
+        <h2 className="text-xl font-bold text-gray-800 mb-4">알레르기 정보</h2>
+        <p className="text-sm text-gray-600 mb-4">
+          급식 메뉴에서 알레르기 유발 식품을 확인하고 관리할 수 있습니다.
+        </p>
+        <button
+          onClick={() => onPageChange('allergyEdit')}
+          className="w-full px-6 py-3 border border-orange-300 text-orange-700 rounded-lg hover:bg-orange-50 transition flex items-center justify-center gap-2"
+        >
+          <AlertTriangle className="w-5 h-5" />
+          알레르기 설정으로 이동
+        </button>
+      </div>
+
       {/* 비밀번호 변경 */}
       <div className="bg-white rounded-lg shadow-md p-6 max-w-2xl">
         <h2 className="text-xl font-bold text-gray-800 mb-4">비밀번호 변경</h2>
@@ -307,6 +307,47 @@ export function ProfileEdit({ onPageChange }: ProfileEditProps) {
         >
           <Key className="w-5 h-5" />
           비밀번호 변경
+        </button>
+      </div>
+
+      {/* 회원 탈퇴 */}
+      <div className="bg-white rounded-lg shadow-md p-6 max-w-2xl border border-red-200">
+        <h2 className="text-xl font-bold text-gray-800 mb-2">회원탈퇴</h2>
+        <p className="text-sm text-gray-600 mb-4">
+          탈퇴 시 계정 정보가 삭제되며, 복구할 수 없습니다.
+          <br />
+          회원탈퇴를 진행하려면 비밀번호를 입력해주세요.
+        </p>
+
+        <label className="block text-sm font-semibold text-gray-700 mb-2">
+          비밀번호 확인
+        </label>
+
+        <div className="relative mb-4">
+          <input
+            type={showWithdrawPw ? 'text' : 'password'}
+            value={withdrawPw}
+            onChange={(e) => setWithdrawPw(e.target.value)}
+            placeholder="현재 비밀번호를 입력"
+            className="w-full pr-12 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-300"
+          />
+          <button
+            type="button"
+            onClick={() => setShowWithdrawPw((v) => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+            aria-label={showWithdrawPw ? '비밀번호 숨기기' : '비밀번호 보기'}
+          >
+            {showWithdrawPw ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+          </button>
+        </div>
+
+        <button
+          onClick={handleWithdraw}
+          disabled={withdrawing}
+          className="w-full px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition flex items-center justify-center gap-2 disabled:opacity-60"
+        >
+          <Trash2 className="w-5 h-5" />
+          {withdrawing ? '처리 중…' : '회원탈퇴'}
         </button>
       </div>
     </div>

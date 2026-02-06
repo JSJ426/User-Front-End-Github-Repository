@@ -6,6 +6,9 @@ import PrivacyModal from './PrivacyModal';
 import { Footer } from './Footer';
 import { signup as apiSignup } from '../api/auth';
 import { searchSchools, type SchoolSearchItem } from '../api/schools';
+import { toast } from 'sonner@2.0.3';
+import { formatPhoneNumber } from '../utils/phone';
+import { checkPasswordPolicy, PASSWORD_RULE_TEXT, PASSWORD_RULE_TOAST } from '../utils/passwordPolicy';
 
 type PageType =
   | 'login'
@@ -105,12 +108,12 @@ export default function StudentSignUpPage({ onNavigate }: StudentSignUpPageProps
     e.preventDefault();
 
     if (formData.password !== formData.confirmPassword) {
-      alert('비밀번호가 일치하지 않습니다.');
+      toast.error('비밀번호가 일치하지 않습니다.');
       return;
     }
 
     if (!isStep1Valid()) {
-      alert('필수 정보를 모두 입력해주세요.');
+      toast.error('필수 정보를 모두 입력해주세요.');
       return;
     }
 
@@ -125,13 +128,13 @@ export default function StudentSignUpPage({ onNavigate }: StudentSignUpPageProps
   e.preventDefault();
 
   if (!agreedToTerms || !agreedToPrivacy) {
-    alert('필수 약관에 동의해주세요.');
+    toast.error('필수 약관에 동의해주세요.');
     return;
   }
 
   // ✅ 학교 선택 필수 (school_id가 있는 학교만 가입 가능)
   if (!selectedSchool?.school_id) {
-    alert('학교를 검색해서 목록에서 선택해주세요. (가입 가능한 학교만 표시됩니다)');
+    toast.error('학교를 검색해서 목록에서 선택해주세요. (가입 가능한 학교만 표시됩니다)');
     return;
   }
 
@@ -143,27 +146,33 @@ export default function StudentSignUpPage({ onNavigate }: StudentSignUpPageProps
   const class_no = Number(formData.class);
 
   if (!username || !pw || !name) {
-    alert('이메일(아이디), 비밀번호, 이름은 필수입니다.');
+    toast.error('이메일(아이디), 비밀번호, 이름은 필수입니다.');
     return;
   }
 
   if (!phone) {
-    alert('전화번호는 필수입니다.');
+    toast.error('전화번호는 필수입니다.');
     return;
   }
 
   if (!Number.isFinite(grade) || grade <= 0) {
-    alert('학년을 선택해주세요.');
+    toast.error('학년을 선택해주세요.');
     return;
   }
 
   if (!Number.isFinite(class_no) || class_no <= 0) {
-    alert('반을 입력해주세요.');
+    toast.error('반을 입력해주세요.');
+    return;
+  }
+
+  const policy = checkPasswordPolicy(pw);
+  if (!policy.ok) {
+    toast.error(PASSWORD_RULE_TOAST);
     return;
   }
 
   if (pw !== formData.confirmPassword) {
-    alert('비밀번호가 일치하지 않습니다.');
+    toast.error('비밀번호가 일치하지 않습니다.');
     return;
   }
 
@@ -180,7 +189,7 @@ export default function StudentSignUpPage({ onNavigate }: StudentSignUpPageProps
       class_no,
       allergy_codes: selectedAllergies,
     });
-    alert('회원가입이 완료되었습니다! 이제 로그인해주세요.');
+    toast.error('회원가입이 완료되었습니다! 이제 로그인해주세요.');
     onNavigate('login');
   } catch (err: any) {
     const msg = err?.message || '회원가입에 실패했습니다.';
@@ -361,6 +370,11 @@ export default function StudentSignUpPage({ onNavigate }: StudentSignUpPageProps
                       </p>
                     )}
                   </div>
+
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 whitespace-pre-line">
+                    {PASSWORD_RULE_TEXT}
+                  </div>
+
                 </div>
 
                 {/* Personal Information Section */}
@@ -398,7 +412,7 @@ export default function StudentSignUpPage({ onNavigate }: StudentSignUpPageProps
                         id="phone"
                         type="tel"
                         value={formData.phone}
-                        onChange={(e) => handleChange('phone', e.target.value)}
+                        onChange={(e) => handleChange('phone', formatPhoneNumber(e.target.value))}
                         placeholder="010-1234-5678"
                         className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#00B3A4] focus:border-transparent transition-all"
                         required

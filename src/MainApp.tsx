@@ -20,15 +20,16 @@ import {
   type BoardListItem,
   type BoardCategory,
 } from './api/board';
-import { changePassword, getStudentMe } from './api/student';
+import { changePassword, getStudentMeCache, updateStudentMe } from './api/student';
 import { toast } from 'sonner@2.0.3';
+import { checkPasswordPolicy, PASSWORD_RULE_TEXT, PASSWORD_RULE_TOAST } from './utils/passwordPolicy';
 
 interface MainAppProps {
   onLogout: () => void;
 }
 
 
-export type PageType = 'home' | 'schedule' | 'satisfaction' | 'profile' | 'settings' | 'passwordVerify' | 'passwordChange' | 'board' | 'boardRead' | 'boardWrite' | 'boardEdit';
+export type PageType = 'home' | 'schedule' | 'satisfaction' | 'profile' | 'settings' | 'passwordVerify' | 'passwordChange' | 'allergyEdit' | 'board' | 'boardRead' | 'boardWrite' | 'boardEdit';
 
 
 function apiCategoryToUiCategory(cat: string): BoardPost['category'] {
@@ -47,14 +48,22 @@ function uiCategoryToApiCategory(cat: string): BoardCategory {
   return 'ETC';
 }
 
+function maskStudentAuthorName(name: string) {
+  const n = String(name || '').trim();
+  if (!n) return '학생';
+  const first = Array.from(n)[0] || '학';
+  return `${first}** 학생`;
+}
+
 function listItemToBoardPost(it: BoardListItem): BoardPost {
+  const authorName = (it as any)?.authorName as string | undefined;
   return {
     id: String(it.id),
     category: apiCategoryToUiCategory(it.category),
     title: it.title,
     // 목록에는 content가 없으므로 빈 문자열로 (상세에서 가져옴)
     content: '',
-    author: it.authorType === 'DIETITIAN' ? '영양사' : '학생',
+    author: it.authorType === 'DIETITIAN' ? '영양사' : maskStudentAuthorName(authorName || ''),
     createdAt: new Date(it.createdAt),
     views: it.viewCount ?? 0,
   };
@@ -118,21 +127,15 @@ export default function MainApp({ onLogout }: MainAppProps) {
   }, []);
 
   useEffect(() => {
-    // ✅ 항상 백에서 최신값으로 초기화
-    (async () => {
-      try {
-        const res = await getStudentMe();
-        const me = res.data;
-        setCurrentUserName(me?.name || '');
-        setUserAllergyCodes(me?.allergy_codes || []);
-        const names = (me?.allergy_codes || [])
-          .map((code) => allergyItems.find((a) => a.id === code)?.name)
-          .filter(Boolean) as string[];
-        setUserAllergies(names);
-      } catch {
-        // 로그인 직후 토큰 문제 등으로 실패할 수 있음 -> 여기서는 조용히 무시
-      }
-    })();
+    // ✅ 백에서 GET /api/student/me 가 막힌 환경이 있어 캐시 기반으로만 초기화
+    const me = getStudentMeCache();
+    if (!me) return;
+    setCurrentUserName(me.name || '');
+    setUserAllergyCodes(me.allergy_codes || []);
+    const names = (me.allergy_codes || [])
+      .map((code) => allergyItems.find((a) => a.id === code)?.name)
+      .filter(Boolean) as string[];
+    setUserAllergies(names);
   }, []);
 
   const handlePageChange = (page: PageType, postId?: string) => {
@@ -275,12 +278,22 @@ export default function MainApp({ onLogout }: MainAppProps) {
                 className={`w-full px-4 py-2 border ${darkMode ? 'border-gray-600 bg-gray-700 text-gray-100' : 'border-gray-300 bg-white'} rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500`}
               />
             </div>
+            <div className={`rounded-lg border ${darkMode ? 'border-gray-700 bg-gray-900 text-gray-200' : 'border-gray-200 bg-gray-50 text-gray-700'} p-3 text-sm whitespace-pre-line`}>
+              {PASSWORD_RULE_TEXT}
+            </div>
+
             <button
               onClick={async () => {
                 if (!pwNew.trim() || !pwConfirm.trim()) {
                   toast.error('새 비밀번호를 입력해주세요.');
                   return;
                 }
+                const policy = checkPasswordPolicy(pwNew);
+                if (!policy.ok) {
+                  toast.error(PASSWORD_RULE_TOAST);
+                  return;
+                }
+
                 if (pwNew !== pwConfirm) {
                   toast.error('새 비밀번호가 일치하지 않습니다.');
                   return;
@@ -305,6 +318,64 @@ export default function MainApp({ onLogout }: MainAppProps) {
             </button>
           </div>
         </div>;
+      case 'allergyEdit':
+        return <div className="space-y-6">
+          <div>
+            <h1 className={`text-3xl font-bold ${darkMode ? 'text-gray-100' : 'text-gray-800'} mb-2`}>알레르기 정보 수정</h1>
+            <p className={darkMode ? 'text-gray-300' : 'text-gray-600'}>알레르기 유발 식품을 선택하세요</p>
+          </div>
+          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-lg shadow-md p-6 max-w-2xl`}>
+            <div className="space-y-4">
+              <p className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'} mb-4`}>
+                해당하는 알레르기 항목을 모두 선택해주세요.
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {allergyItems.map((a) => (
+                  <label key={a.id} className={`flex items-center gap-2 p-3 border ${darkMode ? 'border-gray-600 hover:bg-gray-700' : 'border-gray-200 hover:bg-gray-50'} rounded-lg cursor-pointer`}>
+                    <input
+                      type="checkbox"
+                      checked={userAllergyCodes.includes(a.id)}
+                      onChange={(e) => {
+                        const nextCodes = e.target.checked
+                          ? Array.from(new Set([...userAllergyCodes, a.id]))
+                          : userAllergyCodes.filter((c) => c !== a.id);
+                        setUserAllergyCodes(nextCodes);
+                        const nextNames = nextCodes
+                          .map((code) => allergyItems.find((x) => x.id === code)?.name)
+                          .filter(Boolean) as string[];
+                        setUserAllergies(nextNames);
+                      }}
+                      className="rounded text-teal-500"
+                    />
+                    <span className={`text-sm ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>{a.name}</span>
+                  </label>
+                ))}
+              </div>
+              <div className={`pt-4 border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'} flex gap-3`}>
+                <button
+                  onClick={async () => {
+                    try {
+                      await updateStudentMe({ allergy_codes: userAllergyCodes });
+                      toast.success('알레르기 정보가 저장되었습니다!');
+                      setCurrentPage('profile');
+                    } catch (e: any) {
+                      toast.error(e?.message || '알레르기 정보 저장에 실패했습니다.');
+                    }
+                  }}
+                  className="flex-1 px-6 py-3 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition"
+                >
+                  저장하기
+                </button>
+                <button
+                  onClick={() => setCurrentPage('profile')}
+                  className={`px-6 py-3 ${darkMode ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'} rounded-lg transition`}
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>;
       default:
         return <Home userAllergies={userAllergies} onPageChange={handlePageChange} darkMode={darkMode} />;
     }
@@ -325,6 +396,7 @@ export default function MainApp({ onLogout }: MainAppProps) {
         currentPage={currentPage}
         onPageChange={handlePageChange}
         darkMode={darkMode}
+        userName={currentUserName || '사용자'}
       />
       
       <main className={`container mx-auto px-4 py-8 max-w-7xl ${darkMode ? 'text-white' : ''}`}>

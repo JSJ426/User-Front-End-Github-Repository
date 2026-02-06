@@ -1,22 +1,24 @@
 import { useEffect, useState } from 'react';
 
 import LoginPage from './components/LoginPage';
+import FindIdPage from './components/FindIdPage';
 import FindPasswordPage from './components/FindPasswordPage';
 import StudentSignUpPage from './components/StudentSignUpPage';
 import MainApp from './MainApp';
+import { Toaster } from './components/ui/sonner';
 
 /**
  * Hash Router (react-router-dom 없이)
  * - #/login
+ * - #/findId
  * - #/findPassword
  * - #/signUpStudent
  * - #/app
- *
- * ✅ findId 라우트 제거 (UI는 건드리지 않음)
  */
 
 export type RouteKey =
   | 'login'
+  | 'findId'
   | 'findPassword'
   | 'signUpStudent'
   | 'app';
@@ -26,6 +28,7 @@ function readHash(): RouteKey {
   const key = (raw.split('?')[0] || '').trim();
   switch (key) {
     case 'login':
+    case 'findId':
     case 'findPassword':
     case 'signUpStudent':
     case 'app':
@@ -54,9 +57,12 @@ export default function App() {
     setRoute(next);
   };
 
-  switch (route) {
+  const view = (() => {
+    switch (route) {
     case 'login':
       return <LoginPage onNavigate={onNavigate as any} />;
+    case 'findId':
+      return <FindIdPage onNavigate={onNavigate as any} />;
     case 'findPassword':
       return <FindPasswordPage onNavigate={onNavigate as any} />;
     case 'signUpStudent':
@@ -65,5 +71,14 @@ export default function App() {
       return <MainApp onLogout={() => onNavigate('login')} />;
     default:
       return <LoginPage onNavigate={onNavigate as any} />;
-  }
+    }
+  })();
+
+  return (
+    <>
+      <Toaster />
+      {view}
+    </>
+  );
+
 }

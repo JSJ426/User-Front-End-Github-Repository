@@ -24,6 +24,8 @@ export type BoardListItem = {
   title: string;
   authorId: number;
   authorType: 'DIETITIAN' | 'STUDENT' | string;
+  // 일부 서버 구현에서 목록에도 작성자 이름을 내려줌
+  authorName?: string;
   viewCount: number;
   createdAt: string;
   updatedAt?: string;

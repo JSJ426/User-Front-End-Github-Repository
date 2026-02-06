@@ -1,7 +1,16 @@
-import { useState } from 'react';
-import { Mail, Phone, ArrowLeft } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Phone, ArrowLeft } from 'lucide-react';
 import AuthHeader from './AuthHeader';
 import { Footer } from './Footer';
+import { findId } from '../api/auth';
+
+// 휴대폰 번호 자동 포맷(로그인/프로필과 동일 컨셉)
+function formatPhoneNumber(value: string) {
+  const numbers = value.replace(/\D/g, '').slice(0, 11);
+  if (numbers.length <= 3) return numbers;
+  if (numbers.length <= 7) return `${numbers.slice(0, 3)}-${numbers.slice(3)}`;
+  return `${numbers.slice(0, 3)}-${numbers.slice(3, 7)}-${numbers.slice(7)}`;
+}
 
 type PageType =
   | 'login'
@@ -15,16 +24,47 @@ interface FindIdPageProps {
 }
 
 export default function FindIdPage({ onNavigate }: FindIdPageProps) {
-  const [method, setMethod] = useState<'email' | 'phone'>('email');
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [foundId, setFoundId] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const canSubmit = useMemo(() => {
+    const n = name.trim();
+    const p = phone.replace(/\D/g, '');
+    return n.length > 0 && p.length >= 10;
+  }, [name, phone]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Mock ID recovery
-    setFoundId('student2024');
+    if (!canSubmit || loading) return;
+    setError('');
+
+    try {
+      setLoading(true);
+      const res = await findId({
+        name: name.trim(),
+        // 백엔드는 숫자만/하이픈 포함 둘 다 들어올 수 있으니 일단 숫자만 보내는 게 안전
+        phone: phone.replace(/\D/g, ''),
+      });
+
+      const username = String((res as any)?.username ?? (res as any)?.data?.username ?? '').trim();
+      if (!username) {
+        setError('아이디를 찾지 못했습니다. 입력 정보를 확인해주세요.');
+        return;
+      }
+      setFoundId(username);
+    } catch (err: any) {
+      // 백엔드에서 IllegalArgumentException 등으로 400이 떨어질 수 있음
+      const msg =
+        err?.data?.message ||
+        err?.message ||
+        '아이디 찾기에 실패했습니다. 입력 정보를 확인해주세요.';
+      setError(String(msg));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -33,6 +73,7 @@ export default function FindIdPage({ onNavigate }: FindIdPageProps) {
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 flex-grow">
         <div className="bg-white rounded-2xl shadow-lg overflow-hidden p-8 lg:p-12">
+
           {/* Header with back button */}
           <div className="flex items-center gap-3 mb-2">
             <button
@@ -44,37 +85,11 @@ export default function FindIdPage({ onNavigate }: FindIdPageProps) {
             >
               <ArrowLeft className="w-6 h-6" />
             </button>
-            <h2 className="text-2xl font-bold text-gray-800">아이디 찾기</h2>
+            <h2 className="text-2xl font-bold text-gray-800">아이디(이메일) 찾기</h2>
           </div>
           <p className="text-gray-600 mb-8">
             가입 시 입력한 정보로 아이디를 찾을 수 있습니다.
           </p>
-
-          {/* Method Selection */}
-          <div className="flex gap-3 mb-8">
-            <button
-              type="button"
-              onClick={() => setMethod('email')}
-              className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all ${
-                method === 'email'
-                  ? 'bg-[#00B3A4] text-white shadow-sm'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              이메일로 찾기
-            </button>
-            <button
-              type="button"
-              onClick={() => setMethod('phone')}
-              className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all ${
-                method === 'phone'
-                  ? 'bg-[#00B3A4] text-white shadow-sm'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              휴대폰으로 찾기
-            </button>
-          </div>
 
           {foundId ? (
             /* Result Display */
@@ -138,56 +153,44 @@ export default function FindIdPage({ onNavigate }: FindIdPageProps) {
                 />
               </div>
 
-              {method === 'email' ? (
-                /* Email Input */
-                <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                    이메일
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                      <Mail className="h-5 w-5 text-gray-400" />
-                    </div>
-                    <input
-                      id="email"
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="example@school.com"
-                      className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#00B3A4] focus:border-transparent transition-all"
-                      required
-                    />
+              {/* Phone Input */}
+              <div>
+                <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
+                  휴대폰 번호
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <Phone className="h-5 w-5 text-gray-400" />
                   </div>
+                  <input
+                    id="phone"
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(formatPhoneNumber(e.target.value))}
+                    placeholder="010-1234-5678"
+                    className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#00B3A4] focus:border-transparent transition-all"
+                    required
+                  />
                 </div>
-              ) : (
-                /* Phone Input */
-                <div>
-                  <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
-                    휴대폰 번호
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                      <Phone className="h-5 w-5 text-gray-400" />
-                    </div>
-                    <input
-                      id="phone"
-                      type="tel"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="010-1234-5678"
-                      className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#00B3A4] focus:border-transparent transition-all"
-                      required
-                    />
-                  </div>
+              </div>
+
+              {error ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {error}
                 </div>
-              )}
+              ) : null}
 
               {/* Submit Button */}
               <button
                 type="submit"
-                className="w-full bg-[#00B3A4] text-white py-3.5 rounded-xl font-semibold hover:bg-[#009688] transition-colors shadow-sm hover:shadow-md mt-6"
+                disabled={!canSubmit || loading}
+                className={`w-full py-3.5 rounded-xl font-semibold transition-colors shadow-sm hover:shadow-md mt-6 ${
+                  !canSubmit || loading
+                    ? 'bg-gray-300 text-white cursor-not-allowed'
+                    : 'bg-[#00B3A4] text-white hover:bg-[#009688]'
+                }`}
               >
-                아이디 찾기
+                {loading ? '조회 중...' : '아이디 찾기'}
               </button>
 
               {/* Links */}

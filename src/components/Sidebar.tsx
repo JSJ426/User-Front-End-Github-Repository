@@ -8,9 +8,10 @@ interface SidebarProps {
   currentPage: PageType;
   onPageChange: (page: PageType) => void;
   darkMode?: boolean;
+  userName?: string;
 }
 
-export function Sidebar({ isOpen, onClose, currentPage, onPageChange, darkMode = false }: SidebarProps) {
+export function Sidebar({ isOpen, onClose, currentPage, onPageChange, darkMode = false, userName }: SidebarProps) {
   const menuItems = [
     { id: 'home' as PageType, icon: Home, label: '홈', color: 'text-teal-500' },
     { id: 'schedule' as PageType, icon: Calendar, label: '식단표 조회', color: 'text-blue-500' },
@@ -91,7 +92,7 @@ export function Sidebar({ isOpen, onClose, currentPage, onPageChange, darkMode =
           {/* 푸터 */}
           <div className={`p-4 border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
             <div className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'} text-center`}>
-              안녕하세요 OOO님
+              안녕하세요 {userName || '사용자'}님
             </div>
           </div>
         </div>

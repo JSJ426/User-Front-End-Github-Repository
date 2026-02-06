@@ -22,6 +22,8 @@ function apiCategoryToUiCategory(cat: string): BoardPost['category'] {
 
 export function BoardRead({ darkMode = false, onPageChange, postId, onDelete, currentUser }: BoardReadProps) {
   const [post, setPost] = useState<BoardPost | null>(null);
+  const [authorNameRaw, setAuthorNameRaw] = useState<string>('');
+  const [canEditFromServer, setCanEditFromServer] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,7 +51,13 @@ export function BoardRead({ darkMode = false, onPageChange, postId, onDelete, cu
           createdAt: new Date(d.createdAt),
           views: d.viewCount ?? 0,
         };
-        if (mounted) setPost(uiPost);
+        if (mounted) {
+          setPost(uiPost);
+          setAuthorNameRaw(String(d.authorName || ''));
+          // 서버가 isMine/isEditable를 주는 경우 그것을 최우선으로 사용
+          const serverCanEdit = (d.isMine ?? d.isEditable) as boolean | undefined;
+          setCanEditFromServer(typeof serverCanEdit === 'boolean' ? serverCanEdit : null);
+        }
       } catch (e: any) {
         if (mounted) setError(e?.message || '게시물을 불러오지 못했습니다.');
       } finally {
@@ -132,7 +140,8 @@ export function BoardRead({ darkMode = false, onPageChange, postId, onDelete, cu
   };
 
   const isNotice = post.category === '공지';
-  const isMyPost = currentUser && post.author === currentUser;
+  const isMyPost = Boolean(currentUser && authorNameRaw && authorNameRaw === currentUser);
+  const canEdit = !isNotice && (canEditFromServer ?? isMyPost);
 
   return (
     <div className="space-y-6">
@@ -149,7 +158,7 @@ export function BoardRead({ darkMode = false, onPageChange, postId, onDelete, cu
         </button>
 
         {/* 공지가 아니고, 본인이 작성한 글인 경우에만 수정/삭제 버튼 표시 */}
-        {!isNotice && isMyPost && (
+        {canEdit && (
           <div className="flex gap-2">
             <button
               onClick={() => onPageChange('boardEdit', post.id)}

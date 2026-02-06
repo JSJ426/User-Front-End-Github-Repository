@@ -154,3 +154,176 @@ export async function logout() {
     clearAccessToken();
   }
 }
+
+/* ======================
+   아이디(이메일) 찾기
+   - (현재 백엔드) POST /api/auth/student/find-id
+   - body: { name, phone }
+   - res : { username: "..." }
+   ====================== */
+export async function findId(payload: { name: string; phone: string }) {
+  const body = {
+    name: payload.name,
+    phone: payload.phone,
+  };
+
+  // ✅ 백엔드 버전에 따라 엔드포인트가 다를 수 있어 404일 때만 대체 경로를 시도합니다.
+  // - 현재 백엔드: POST /api/auth/student/find-id
+  // - 구버전: POST /api/auth/find-id
+  // - 일부 환경: POST /auth/find-id
+  const candidates = ['/api/auth/student/find-id', '/api/auth/find-id', '/auth/find-id'] as const;
+
+  let lastErr: any = null;
+  for (const path of candidates) {
+    try {
+      return await requestJson<any>('POST', path, {
+        body,
+        skipAuth: true,
+      });
+    } catch (e: any) {
+      lastErr = e;
+      // 404(매핑 없음)일 때만 다음 후보로 넘어감
+      if (e?.status === 404) continue;
+      throw e;
+    }
+  }
+
+  throw lastErr ?? new Error('아이디 찾기 API를 찾을 수 없습니다.');
+}
+
+
+/* ======================
+   비밀번호 찾기 (학생)
+   - 백엔드: POST /api/auth/student/find-pw
+   - body: { username, name, phone }
+   - res : { message, temporaryPassword }
+   ====================== */
+export async function findStudentTempPassword(payload: {
+  email: string;   // ✅ email로 받기
+  name: string;
+  phone: string;
+}) {
+  const body = {
+    email: payload.email, // ✅ 백엔드 DTO 필드명과 일치
+    name: payload.name,
+    phone: payload.phone,
+  };
+
+  const candidates = ['/api/auth/student/find-pw', '/api/auth/find-pw', '/auth/find-pw'] as const;
+
+  let lastErr: any = null;
+  for (const path of candidates) {
+    try {
+      return await requestJson<any>('POST', path, {
+        body,
+        skipAuth: true,
+      });
+    } catch (e: any) {
+      lastErr = e;
+      if (e?.status === 404) continue;
+      throw e;
+    }
+  }
+  throw lastErr ?? new Error('비밀번호 찾기 API를 찾을 수 없습니다.');
+}
+
+
+/* ======================
+   회원 탈퇴 (학생)
+   - 백엔드: DELETE /api/auth/withdraw/student
+   - body: { pw: string }
+   ====================== */
+export async function withdrawStudentAccount(payload: { pw: string }) {
+  const data = await requestJson<any>('DELETE', '/api/auth/withdraw/student', {
+    body: { pw: payload.pw },
+  });
+
+  // 탈퇴 성공 시 로컬 토큰/캐시 정리
+  try {
+    clearAccessToken();
+    localStorage.removeItem('username');
+    localStorage.removeItem('student_me_cache');
+    localStorage.removeItem('student_name');
+    localStorage.removeItem('student_phone');
+    localStorage.removeItem('student_grade');
+    localStorage.removeItem('student_class_no');
+    localStorage.removeItem('student_allergy_codes');
+  } catch {
+    // ignore
+  }
+
+  return data;
+}
+/* ======================
+   비밀번호 재설정(찾기/변경)
+   - 백엔드 엔드포인트가 프로젝트마다 달라서
+     흔한 후보들을 순서대로 시도합니다.
+   - 404(없음)일 때만 다음 후보를 시도하고
+     그 외 에러(400/401/500 등)는 그대로 사용자에게 보여줍니다.
+   ====================== */
+export async function resetPassword(payload: {
+  name: string;
+  email?: string;   // 이메일(아이디를 이메일로 쓰는 경우)
+  phone?: string;
+  newPassword: string;
+}) {
+  const name = payload.name?.trim();
+  const email = payload.email?.trim();
+  const phone = payload.phone?.trim();
+  const newPassword = payload.newPassword;
+
+  // 여러 서버 구현을 대비해서 body 키를 여러 형태로 준비
+  const bodies = [
+    // 케이스1: username + pw
+    { username: email, name, phone, pw: newPassword },
+    // 케이스2: email + pw
+    { email, name, phone, pw: newPassword },
+    // 케이스3: username + newPassword
+    { username: email, name, phone, newPassword },
+    // 케이스4: email + newPassword
+    { email, name, phone, newPassword },
+    // 케이스5: password 키
+    { email, username: email, name, phone, password: newPassword },
+  ].filter((b) => {
+    // email/username 둘 다 비어있으면 의미없으니 제거
+    const hasId = Boolean((b as any).email || (b as any).username || phone);
+    return hasId;
+  });
+
+  const endpoints = [
+    // 흔한 후보들
+    '/api/auth/reset-password',
+    '/api/auth/password/reset',
+    '/api/auth/password',
+    '/api/auth/password/change',
+    '/api/student/password',
+    '/api/students/password',
+  ];
+
+  let lastErr: any = null;
+
+  for (const path of endpoints) {
+    for (const body of bodies) {
+      try {
+        // 비밀번호 찾기/재설정은 보통 토큰 없이 진행됨
+        const data = await requestJson<any>('POST', path, {
+          body,
+          skipAuth: true,
+        });
+        return data; // ✅ 성공하면 즉시 반환
+      } catch (e: any) {
+        lastErr = e;
+
+        // ✅ 엔드포인트가 아예 없을 때(404)만 다음 후보 시도
+        if (e?.status === 404) continue;
+
+        // 400/401/403/500 등은 “있는데 요청이 틀림/실패”니까 바로 throw
+        throw e;
+      }
+    }
+  }
+
+  // 여기까지 왔다는 건 후보 엔드포인트가 전부 404였거나, 모두 실패
+  throw lastErr || new Error('비밀번호 재설정 API를 찾지 못했습니다.');
+}
+

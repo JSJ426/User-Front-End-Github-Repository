@@ -7,8 +7,15 @@ import { Switch } from '../components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { getDailyMeal } from '../api/mealplan';
 import { createSatisfaction } from '../api/satisfaction';
+import { ApiError } from '../api/http';
 
 type MealTab = 'lunch' | 'dinner';
+
+// ✅ 당일(24시 전) 재평가 방지: 페이지 이동/재진입에도 유지되도록 localStorage에 제출 여부 저장
+// 키는 날짜가 바뀌면 자동으로 분리되므로, 다음날 00:00 이후에는 다시 평가 가능
+function getSatisfactionLockKey(dateStr: string, mealType: 'LUNCH' | 'DINNER') {
+  return `satisfaction_submitted:${dateStr}:${mealType}`;
+}
 
 function extractMenuNames(menuItems: any): string[] {
   if (!menuItems || typeof menuItems !== 'object') return [];
@@ -312,6 +319,21 @@ export function Satisfaction() {
     return `${y}-${m}-${day}`;
   }, []);
 
+  // ✅ 페이지 재진입 시에도 '오늘 이미 제출했는지' 유지
+  // (백엔드 중복체크가 있더라도, UX상 버튼/입력창을 미리 잠그기 위해 사용)
+  useEffect(() => {
+    try {
+      const lunchKey = getSatisfactionLockKey(todayDateStr, 'LUNCH');
+      const dinnerKey = getSatisfactionLockKey(todayDateStr, 'DINNER');
+
+      setLunchSubmitted(localStorage.getItem(lunchKey) === '1');
+      setDinnerSubmitted(localStorage.getItem(dinnerKey) === '1');
+    } catch {
+      // localStorage 접근 불가 환경이면 무시
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayDateStr]);
+
   const [mealLoading, setMealLoading] = useState(false);
   const [mealError, setMealError] = useState<string | null>(null);
   const [todayMenu, setTodayMenu] = useState<{ lunch: string[]; dinner: string[] }>({
@@ -380,8 +402,25 @@ export function Satisfaction() {
         content: lunchComment.trim().slice(0, 200),
       });
       toast.success('중식 평가가 제출되었습니다!');
+      try {
+        localStorage.setItem(getSatisfactionLockKey(todayDateStr, 'LUNCH'), '1');
+      } catch {
+        // ignore
+      }
       setLunchSubmitted(true);
     } catch (e: any) {
+      // ✅ 이미 제출한 경우(백엔드 중복체크)면 UX상 제출완료로 잠그기
+      if (e instanceof ApiError && (e.status === 400 || e.status === 409) && String(e.message).includes('이미')) {
+        try {
+          localStorage.setItem(getSatisfactionLockKey(todayDateStr, 'LUNCH'), '1');
+        } catch {
+          // ignore
+        }
+        setLunchSubmitted(true);
+        toast.info('이미 오늘 중식 만족도 평가를 완료했습니다.');
+        return;
+      }
+
       toast.error(e?.message || '중식 평가 제출에 실패했습니다.');
     }
   };
@@ -410,8 +449,24 @@ export function Satisfaction() {
         content: dinnerComment.trim().slice(0, 200),
       });
       toast.success('석식 평가가 제출되었습니다!');
+      try {
+        localStorage.setItem(getSatisfactionLockKey(todayDateStr, 'DINNER'), '1');
+      } catch {
+        // ignore
+      }
       setDinnerSubmitted(true);
     } catch (e: any) {
+      if (e instanceof ApiError && (e.status === 400 || e.status === 409) && String(e.message).includes('이미')) {
+        try {
+          localStorage.setItem(getSatisfactionLockKey(todayDateStr, 'DINNER'), '1');
+        } catch {
+          // ignore
+        }
+        setDinnerSubmitted(true);
+        toast.info('이미 오늘 석식 만족도 평가를 완료했습니다.');
+        return;
+      }
+
       toast.error(e?.message || '석식 평가 제출에 실패했습니다.');
     }
   };

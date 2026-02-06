@@ -152,8 +152,12 @@ export default function LoginPage({ onNavigate }: LoginPageProps) {
                     {isLoading ? '로그인 중...' : '로그인'}
                   </button>
 
-                  {/* 하단 링크: 아이디 찾기 제거 상태 유지 */}
+                  {/* 하단 링크 */}
                   <div className="text-center text-sm text-gray-600">
+                    <button type="button" className="hover:text-gray-900" onClick={() => onNavigate('findId')}>
+                      아이디 찾기
+                    </button>
+                    <span className="mx-2 text-gray-300">|</span>
                     <button type="button" className="hover:text-gray-900" onClick={() => onNavigate('findPassword')}>
                       비밀번호 찾기
                     </button>
