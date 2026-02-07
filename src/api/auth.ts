@@ -21,15 +21,18 @@ export async function login(payload: {
     pw: payload.pw,
   };
 
-  const { data, response } = await requestJson('POST', '/api/auth/login', {
-    headers: {
-      'API-KEY': API_KEY,
-      'api-key': API_KEY,
-    },
-    body,
-    returnResponse: true,
-    skipAuth: true, // ✅ 중요
-  });
+  const { data, response } = await requestJson('POST', '/api/auth/login/student', {
+  headers: {
+    'API-KEY': API_KEY,
+    'api-key': API_KEY,
+  },
+  body: {
+    username: payload.id,
+    pw: payload.pw,
+  },
+  returnResponse: true,
+  skipAuth: true,
+});
 
   // -------------------------------------------------------------------
   // ✅ 토큰 저장 로직 (백엔드 구현에 따라 헤더/바디 둘 다 대응)
@@ -92,25 +95,30 @@ export async function login(payload: {
 /* ======================
    회원가입
    ====================== */
-export async function signup(payload: {
-  // 학생 회원가입(현재 StudentSignUpPage에서 사용)
-  school_id: number;
-  username: string; // 이메일(아이디)
-  pw: string;
+export async function signupStudent(payload: {
+  email: string;
+  password: string;
   name: string;
   phone: string;
   grade: number;
-  class_no: number;
-  allergy_codes: number[];
+  classNo: number;
+  allergyCodes: number[];
 }) {
-  const data = await requestJson<any>('POST', '/api/auth/signup', {
-    headers: {
-      'API-KEY': API_KEY,
-      'api-key': API_KEY, // 서버가 대소문자 민감할 경우 대비
+  const { data } = await requestJson('POST', '/api/auth/signup/student', {
+    body: {
+      email: payload.email,
+      password: payload.password,
+      name: payload.name,
+      phone: payload.phone,
+      grade: payload.grade,
+      classNo: payload.classNo,
+      allergyCodes: payload.allergyCodes,
     },
-    body: payload,
-    skipAuth: true, // ✅ 403 해결 핵심
+    skipAuth: true, // ⭐ 회원가입은 토큰 없이
   });
+
+  return data;
+}
 
   // ✅ 백엔드에는 GET /api/student/me 가 없어서(또는 막혀있어서)
   // 프로필 수정 화면에서 "변경 전" 값을 보여주려면
