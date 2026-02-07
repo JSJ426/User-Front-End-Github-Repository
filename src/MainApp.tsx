@@ -5,7 +5,7 @@ import { Footer } from './components/Footer';
 import { Home } from './pages/Home';
 import { MenuSchedule } from './pages/MenuSchedule';
 import { Satisfaction } from './pages/Satisfaction';
-import { ProfileEdit } from './pages/ProfileEdit';
+import ProfileEdit from './pages/ProfileEdit';
 import { Settings } from './pages/Settings';
 import { Board, BoardPost } from './pages/Board';
 import { BoardRead } from './pages/BoardRead';
@@ -175,7 +175,7 @@ export default function MainApp({ onLogout }: MainAppProps) {
       case 'home':
         return <Home userAllergies={userAllergies} onPageChange={handlePageChange} darkMode={darkMode} />;
       case 'schedule':
-        return <MenuSchedule darkMode={darkMode} />;
+        return <MenuSchedule darkMode={darkMode} userAllergies={userAllergies} />;
       case 'satisfaction':
         return <Satisfaction />;
       case 'profile':

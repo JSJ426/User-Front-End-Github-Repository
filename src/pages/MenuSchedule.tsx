@@ -43,9 +43,10 @@ interface DayMeal {
 
 interface MenuScheduleProps {
   darkMode?: boolean;
+  userAllergies: string[]; // ✅ 추가
 }
 
-export function MenuSchedule({ darkMode = false }: MenuScheduleProps) {
+export function MenuSchedule({ darkMode = false, userAllergies }: MenuScheduleProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<DayMeal | null>(null);
   const [selectedMealType, setSelectedMealType] = useState<'lunch' | 'dinner'>('lunch');
@@ -687,6 +688,7 @@ export function MenuSchedule({ darkMode = false }: MenuScheduleProps) {
           mealType={selectedMealType}
           meals={selectedMealType === 'lunch' ? selectedDate.lunch : selectedDate.dinner}
           darkMode={darkMode}
+          userAllergies={userAllergies}   // ✅ 추가
         />
       )}
 

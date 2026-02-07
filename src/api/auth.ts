@@ -63,7 +63,7 @@ export async function login(payload: { id: string; pw: string }) {
    회원가입 (학생)
    ====================== */
 export async function signup(payload: {
-  school_id: number;         // 필요 없으면 무시
+  school_id: number;         // ✅ 필수 (백엔드 NotNull)
   username: string;          // -> email
   pw: string;                // -> password
   name: string;
@@ -72,7 +72,9 @@ export async function signup(payload: {
   class_no: number;          // -> classNo
   allergy_codes: number[];   // -> allergyCodes
 }) {
+  // ✅ 백엔드 DTO가 요구하는 키로 변환
   const body = {
+    schoolId: payload.school_id, // ✅ 핵심: null이면 백에서 Validation 실패
     email: payload.username,
     password: payload.pw,
     name: payload.name,
@@ -81,6 +83,11 @@ export async function signup(payload: {
     classNo: payload.class_no,
     allergyCodes: Array.isArray(payload.allergy_codes) ? payload.allergy_codes : [],
   };
+
+  // ✅ 안전장치: schoolId 없으면 프론트에서 즉시 중단
+  if (!body.schoolId || !Number.isFinite(Number(body.schoolId))) {
+    throw new Error("학교를 검색해서 목록에서 선택해주세요. (schoolId가 비어있음)");
+  }
 
   const data = await requestJson<any>("POST", "/api/auth/signup/student", {
     headers: {
@@ -96,8 +103,7 @@ export async function signup(payload: {
 
 /* ======================
    아이디 찾기 (findId)
-   - 백엔드가 /api/auth/find-id or /api/auth/find-id/student 둘 중 하나일 수 있어서
-     둘 다 시도하는 fallback 포함
+   - 환경마다 경로가 달라서 "있는 것"을 맞출 때까지 순차 시도
    ====================== */
 export async function findId(payload: { name: string; phone: string }) {
   const body = {
@@ -105,27 +111,39 @@ export async function findId(payload: { name: string; phone: string }) {
     phone: payload.phone,
   };
 
-  // 1) 우선: /api/auth/find-id/student
-  try {
-    return await requestJson<any>("POST", "/api/auth/find-id/student", {
-      headers: {
-        "API-KEY": API_KEY,
-        "api-key": API_KEY,
-      },
-      body,
-      skipAuth: true,
-    });
-  } catch (e) {
-    // 2) fallback: /api/auth/find-id
-    return await requestJson<any>("POST", "/api/auth/find-id", {
-      headers: {
-        "API-KEY": API_KEY,
-        "api-key": API_KEY,
-      },
-      body,
-      skipAuth: true,
-    });
+  // ✅ 백엔드(NutriAssistant-Back) 기준 실제 엔드포인트
+  // - 학생:   POST /api/auth/student/find-id
+  // - 영양사: POST /api/auth/dietitian/find-id
+  // (기존 화면/컴포넌트 수정 없이 auth.ts만 고치기 위해 순차 시도 유지)
+  const tries = [
+    "/api/auth/student/find-id",
+    "/api/auth/dietitian/find-id",
+
+    // 아래는 환경/버전 차이 대비용 fallback
+    "/api/student/find-id",
+    "/api/auth/find-id/student",
+    "/api/student/find-id/student",
+    "/api/auth/find-id",
+  ];
+
+  let lastErr: unknown = null;
+
+  for (const url of tries) {
+    try {
+      return await requestJson<any>("POST", url, {
+        headers: {
+          "API-KEY": API_KEY,
+          "api-key": API_KEY,
+        },
+        body,
+        skipAuth: true,
+      });
+    } catch (e) {
+      lastErr = e;
+    }
   }
+
+  throw lastErr;
 }
 
 /* ======================
@@ -140,7 +158,17 @@ export async function findPassword(payload: { email: string; name: string; phone
     phone: payload.phone,
   };
 
+  // ✅ 백엔드(NutriAssistant-Back) 실제 엔드포인트 우선
+  // - 학생:   POST /api/auth/student/find-pw
+  // - 영양사: POST /api/auth/dietitian/find-pw
+  // 환경/버전 차이를 고려해 fallback도 같이 둠
   const tries = [
+    "/api/auth/student/find-pw",
+    "/api/auth/dietitian/find-pw",
+
+    // fallback 후보들(구버전/환경차)
+    "/api/student/find-pw",
+    "/api/dietitian/find-pw",
     "/api/auth/find-pw/student",
     "/api/auth/find-password/student",
     "/api/auth/find-pw",
@@ -175,38 +203,45 @@ export async function logout() {
     clearAccessToken();
   }
 }
-// ✅ FindPasswordPage.tsx 호환용 export
-export async function findStudentTempPassword(payload: {
-  email: string;
-  name: string;
-  phone: string;
-}) {
-  // 내부적으로 기존 findPassword를 재사용
-  return findPassword(payload);
-}
 
-// ✅ ProfileEdit.tsx 호환: 학생 회원탈퇴
+/* ======================
+   ✅ FindPasswordPage.tsx 호환용 export
+   - “export named” 문제 방지용으로 const로도 제공
+   ====================== */
+export const findStudentTempPassword = findPassword;
+
+/* ======================
+   ✅ ProfileEdit.tsx 호환: 학생 회원탈퇴
+   - 백엔드 실제 경로 우선: POST /api/student/me/withdraw  { password }
+   - (환경마다 다를 수 있어 fallback도 같이 둠)
+   ====================== */
 export async function withdrawStudentAccount(payload: { pw: string }) {
-  const body = { pw: payload.pw };
+  // 백엔드 DTO가 password 를 받는 케이스가 많음
+  const body1 = { password: payload.pw };
+  const body2 = { pw: payload.pw }; // fallback용
 
-  // 백엔드가 어떤 경로를 쓰는지 케이스가 많아서 흔한 것들 순서대로 시도
-  const tries = [
-    "/api/student/withdraw",          // 학생 컨트롤러 기반
-    "/api/student/withdrawal",
-    "/api/student/delete",
-    "/api/auth/withdraw/student",     // auth 하위로 분리된 케이스
-    "/api/auth/withdrawal/student",
-    "/api/auth/withdraw",             // 단일 엔드포인트 케이스
-    "/api/auth/withdrawal",
+  const tries: Array<{ method: "POST" | "DELETE"; url: string; body: any }> = [
+    // ✅ 가장 우선(백엔드 실제 매핑)
+    { method: "POST", url: "/api/student/me/withdraw", body: body1 },
+
+    // fallback 후보들
+    { method: "POST", url: "/api/student/withdraw", body: body2 },
+    { method: "POST", url: "/api/student/withdrawal", body: body2 },
+    { method: "POST", url: "/api/student/delete", body: body2 },
+    { method: "DELETE", url: "/api/auth/withdraw/student", body: body2 },
+    { method: "POST", url: "/api/auth/withdraw/student", body: body2 },
+    { method: "POST", url: "/api/auth/withdrawal/student", body: body2 },
+    { method: "POST", url: "/api/auth/withdraw", body: body2 },
+    { method: "POST", url: "/api/auth/withdrawal", body: body2 },
   ];
 
   let lastErr: unknown = null;
-  for (const url of tries) {
+
+  for (const t of tries) {
     try {
-      const res = await requestJson<any>("POST", url, {
+      const res = await requestJson<any>(t.method, t.url, {
         headers: { "API-KEY": API_KEY, "api-key": API_KEY },
-        body,
-        // 탈퇴는 보통 인증 필요. requestJson이 자동으로 토큰 붙이면 skipAuth는 false(기본)
+        body: t.body,
       });
 
       // 성공하면 토큰/캐시 정리
